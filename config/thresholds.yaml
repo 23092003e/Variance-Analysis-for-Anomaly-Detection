@@ -1,0 +1,64 @@
+# Variance Analysis Thresholds Configuration
+
+# General variance thresholds (in percentage)
+variance_threshold: 5.0        # Default threshold for significance
+critical_threshold: 10.0       # Threshold for critical anomalies
+
+# Account-specific thresholds for recurring accounts
+recurring_accounts:
+  depreciation: 5.0             # Depreciation should be stable
+  revenue: 5.0                  # Revenue variance threshold
+  opex: 5.0                     # Operating expenses threshold
+  interest_expense: 5.0         # Interest expense threshold
+  interest_income: 5.0          # Interest income threshold
+  
+# Correlation rule thresholds
+correlation_thresholds:
+  minimum_correlation: 0.3      # Minimum correlation to be considered significant
+  p_value_threshold: 0.05       # Statistical significance threshold
+  
+# Quarterly pattern thresholds
+quarterly_patterns:
+  trade_receivables:
+    start_quarter_spike: 20.0   # Expected spike at start of quarter
+    mid_quarter_normal: 5.0     # Normal variance mid-quarter
+  unbilled_revenue:
+    end_quarter_peak: 25.0      # Expected peak at end of quarter
+    start_quarter_low: 10.0     # Expected low at start of quarter
+    
+# Outlier detection thresholds
+outlier_detection:
+  z_score_threshold: 3.0        # Z-score threshold for outliers
+  iqr_multiplier: 1.5           # IQR multiplier for outlier detection
+  modified_z_threshold: 3.5     # Modified Z-score threshold
+
+# Data quality thresholds
+data_quality:
+  max_missing_percentage: 20.0  # Maximum percentage of missing data allowed
+  balance_sheet_tolerance: 0.01 # Tolerance for balance sheet equation (1%)
+  
+# Severity classification
+severity_levels:
+  critical:
+    variance_threshold: 20.0    # Variance % for critical classification
+    absolute_threshold: 1000000 # Absolute amount threshold for critical
+  high:
+    variance_threshold: 10.0    # Variance % for high classification
+    absolute_threshold: 500000  # Absolute amount threshold for high
+  medium:
+    variance_threshold: 5.0     # Variance % for medium classification
+    absolute_threshold: 100000  # Absolute amount threshold for medium
+  # Low: everything else
+
+# Account-specific variance tolerances
+account_tolerances:
+  # Balance Sheet accounts
+  investment_properties: 3.0    # Lower tolerance for capital assets
+  cash_deposits: 10.0          # Higher tolerance for cash fluctuations
+  trade_receivables: 15.0      # Higher tolerance due to billing cycles
+  borrowings: 2.0              # Lower tolerance for debt changes
+  
+  # Income Statement accounts
+  rental_revenue: 5.0          # Moderate tolerance for revenue
+  financial_expenses: 8.0      # Moderate tolerance for interest
+  operating_expenses: 7.0      # Moderate tolerance for OPEX

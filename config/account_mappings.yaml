@@ -1,0 +1,197 @@
+# Account Code Mappings and Categorization
+
+# Balance Sheet Account Mappings
+balance_sheet:
+  # Assets
+  investment_properties:
+    - "217000001"  # Investment properties: Land Use Rights
+    - "217000006"  # Investment properties: Office building
+    - "217000007"  # Investment properties: Warehouse
+    - "217000008"  # Investment properties: Retail space
+    
+  cash_deposits:
+    - "112227001"  # ACB: Current Account USD - Hcm
+    - "112227002"  # ACB: Current Account USD - Hcm 2
+    - "112227003"  # VCB: Current Account VND
+    - "112227004"  # HSBC: Current Account USD
+    
+  trade_receivables:
+    - "131100001"  # Trade receivable: Tenant
+    - "131100002"  # Trade receivable: Other
+    
+  unbilled_revenue:
+    - "138900003"  # Unbilled revenue receivables
+    
+  vat_deductible:
+    - "133100001"  # VAT Deductible
+    - "133100002"  # VAT Deductible - Input
+    
+  lending:
+    - "138820000"  # LT: Other Receivables: Subsidiaries/Parents - SHL
+    - "138821001"  # LT: Other Receivables: Subsidiaries/Parents - SHL 2
+    
+  other_receivables:
+    - "131200001"  # Other receivables
+    - "131200002"  # Staff advances
+    
+  # Liabilities
+  borrowings:
+    - "341160000"  # LT: Borrowings: Subsidiaries/Parents
+    - "341160001"  # LT: Borrowings: Subsidiaries/Parents 2
+    - "341160002"  # Bank borrowings: Long term
+    - "341160003"  # Bank borrowings: Short term
+    
+  unearned_revenue:
+    - "213100001"  # Unearned Revenue
+    - "213100002"  # Advance from tenants
+    
+  trade_payables:
+    - "331100001"  # Trade payables
+    - "331100002"  # Accrued expenses
+
+# Income Statement Account Mappings  
+income_statement:
+  # Revenue
+  revenue:
+    - "511100001"  # Rental Revenue
+    - "511100002"  # Service Revenue
+    - "511100003"  # Management fees
+    
+  interest_income:
+    - "515100001"  # Financial Income: Interest
+    - "515100002"  # Bank interest income
+    
+  interest_income_shl:
+    - "515600000"  # Financial Income: BCC interest
+    
+  other_income:
+    - "515200001"  # Other income
+    - "515200002"  # FX gains
+    
+  # Expenses
+  depreciation:
+    - "632100001"  # Expense Amortization: Land Use Rights
+    - "632100002"  # Expense Amortization: Building
+    - "632100003"  # Depreciation: Equipment
+    
+  interest_expense:
+    - "635000005"  # Financial Expenses: Loan interest - Parent/Subsi
+    - "635000006"  # Financial Expenses: Loan interest - Bank
+    
+  opex:
+    - "622000001"  # Operating Expenses: Insurance
+    - "622000002"  # Operating Expenses: Utilities  
+    - "622000003"  # Operating Expenses: R&M
+    - "622000004"  # Property management fees
+    - "622000005"  # Security services
+    
+  staff_costs:
+    - "621100001"  # Staff costs: Salaries
+    - "621100002"  # Staff costs: Benefits
+    
+  fx_gain_loss:
+    - "641100001"  # FX Gain/Loss
+    - "635200001"  # FX losses
+    
+  other_expenses:
+    - "627000001"  # Professional fees
+    - "627000002"  # Audit fees
+
+# Account Categories for Analysis
+analysis_categories:
+  recurring_accounts:
+    # Accounts expected to be stable period-over-period
+    - "632100001"  # Depreciation: Land Use Rights
+    - "632100002"  # Depreciation: Building  
+    - "511100001"  # Rental Revenue (base rent)
+    - "622000001"  # Insurance
+    - "622000002"  # Utilities (seasonal variation expected)
+    - "635000006"  # Bank interest expense
+    
+  cyclical_accounts:
+    # Accounts with expected quarterly patterns
+    - "131100001"  # Trade receivables (billing cycle)
+    - "138900003"  # Unbilled revenue (recognition timing)
+    - "213100001"  # Unearned revenue (advance collections)
+    
+  volatile_accounts:
+    # Accounts expected to have higher variance
+    - "112227001"  # Cash (operational fluctuations)
+    - "641100001"  # FX Gain/Loss
+    - "515200002"  # FX gains
+    - "331100002"  # Accrued expenses
+    
+  correlation_pairs:
+    # Primary -> Correlated account relationships
+    investment_properties_depreciation:
+      primary: ["217000001", "217000006"]
+      correlated: ["632100001", "632100002"]
+      
+    borrowings_interest:
+      primary: ["341160000", "341160001", "341160002"]
+      correlated: ["635000005", "635000006"]
+      
+    cash_interest_income:
+      primary: ["112227001", "112227002", "112227003"]
+      correlated: ["515100001", "515100002"]
+      
+    lending_interest_income:
+      primary: ["138820000", "138821001"]
+      correlated: ["515600000"]
+
+# Account Groupings for Reporting
+reporting_groups:
+  balance_sheet_sections:
+    current_assets:
+      - cash_deposits
+      - trade_receivables
+      - unbilled_revenue
+      - vat_deductible
+      - other_receivables
+      
+    non_current_assets:
+      - investment_properties
+      - lending
+      
+    current_liabilities:
+      - trade_payables
+      - unearned_revenue
+      
+    non_current_liabilities:
+      - borrowings
+      
+  income_statement_sections:
+    operating_revenue:
+      - revenue
+      
+    financial_income:
+      - interest_income
+      - interest_income_shl
+      - other_income
+      
+    operating_expenses:
+      - opex
+      - staff_costs
+      - depreciation
+      
+    financial_expenses:
+      - interest_expense
+      - fx_gain_loss
+      - other_expenses
+
+# Materiality thresholds by account type
+materiality_thresholds:
+  high_materiality:
+    # Accounts with lower variance tolerance
+    accounts: ["217000001", "217000006", "341160000", "511100001"]
+    threshold: 3.0  # 3% variance threshold
+    
+  medium_materiality:
+    # Standard variance tolerance
+    accounts: ["632100001", "635000005", "622000001"]
+    threshold: 5.0  # 5% variance threshold
+    
+  low_materiality:
+    # Higher variance tolerance
+    accounts: ["112227001", "641100001", "331100002"]
+    threshold: 10.0  # 10% variance threshold

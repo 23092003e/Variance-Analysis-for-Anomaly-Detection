@@ -1,0 +1,158 @@
+# Correlation Rules Configuration for Anomaly Detection
+
+correlation_rules:
+  - id: 1
+    name: "Investment Properties vs Depreciation"
+    description: "As Investment Properties increase, Depreciation & Amortisation should increase proportionally"
+    primary_account_category: "investment_properties"
+    correlated_account_category: "depreciation"
+    relationship_type: "positive"
+    strength_threshold: 0.7
+    enabled: true
+    
+  - id: 2
+    name: "Loan Balance vs Interest Expenses"
+    description: "Higher loan principal leads to higher interest costs"
+    primary_account_category: "borrowings"
+    correlated_account_category: "interest_expense" 
+    relationship_type: "positive"
+    strength_threshold: 0.8
+    enabled: true
+    
+  - id: 3
+    name: "Cash Deposits vs Bank Interest Income"
+    description: "More cash in bank earns more interest"
+    primary_account_category: "cash_deposits"
+    correlated_account_category: "interest_income"
+    relationship_type: "positive"
+    strength_threshold: 0.6
+    enabled: true
+    
+  - id: 4
+    name: "Trade Receivables vs Quarterly Billing Cycle"
+    description: "Rental fees billed quarterly cause spikes in receivables at start of each quarter"
+    primary_account_category: "trade_receivables"
+    correlated_account_category: "revenue"
+    relationship_type: "quarterly_cycle"
+    cycle_pattern: "start_of_quarter_spike"
+    enabled: true
+    
+  - id: 5
+    name: "Unbilled Revenue vs Lease Revenue Recognition"
+    description: "Due to straight-lining and advance collection, unbilled revenue fluctuates cyclically"
+    primary_account_category: "unbilled_revenue"
+    correlated_account_category: "revenue"
+    relationship_type: "quarterly_cycle"
+    cycle_pattern: "end_of_quarter_peak"
+    enabled: true
+    
+  - id: 6
+    name: "Unearned Revenue vs Advance Rental Collection"
+    description: "Advance collection leads to temporary increase in unearned revenue"
+    primary_account_category: "unearned_revenue"
+    correlated_account_category: "revenue"
+    relationship_type: "quarterly_cycle"
+    cycle_pattern: "start_of_quarter_increase"
+    enabled: true
+    
+  - id: 7
+    name: "Construction in Progress + IP vs VAT Deductible"
+    description: "Capital expenditures increase deductible VAT"
+    primary_account_category: "investment_properties"
+    correlated_account_category: "vat_deductible"
+    relationship_type: "positive"
+    strength_threshold: 0.5
+    enabled: true
+    
+  - id: 8
+    name: "Occupancy Rate vs Revenue"
+    description: "Higher occupancy leads to more rental income"
+    primary_account_category: "occupancy_rate"
+    correlated_account_category: "revenue"
+    relationship_type: "positive"
+    strength_threshold: 0.9
+    enabled: false  # Requires occupancy data not in standard financial statements
+    
+  - id: 9
+    name: "Maintenance Expenses vs OPEX"
+    description: "Maintenance spikes can drive up operating expenses"
+    primary_account_category: "maintenance_expense"
+    correlated_account_category: "opex"
+    relationship_type: "positive"
+    strength_threshold: 0.4
+    enabled: false  # Requires detailed OPEX breakdown
+    
+  - id: 10
+    name: "Asset Disposal vs Depreciation"
+    description: "Disposal of assets reduces depreciation base"
+    primary_account_category: "asset_disposal"
+    correlated_account_category: "depreciation"
+    relationship_type: "negative"
+    strength_threshold: 0.6
+    enabled: false  # Requires disposal tracking data
+    
+  - id: 11
+    name: "New Lease Contracts vs Revenue"
+    description: "New tenants increase rental income"
+    primary_account_category: "new_leases"
+    correlated_account_category: "revenue"
+    relationship_type: "positive"
+    strength_threshold: 0.8
+    enabled: false  # Requires lease contract data
+    
+  - id: 12
+    name: "Lease Termination vs Revenue"
+    description: "Terminations reduce rental income"
+    primary_account_category: "lease_termination"
+    correlated_account_category: "revenue"
+    relationship_type: "negative"
+    strength_threshold: 0.7
+    enabled: false  # Requires termination tracking data
+    
+  - id: 13
+    name: "FX Rate Changes vs FX Gain/Loss"
+    description: "Currency fluctuations affect FX-related accounts"
+    primary_account_category: "fx_volatility"
+    correlated_account_category: "fx_gain_loss"
+    relationship_type: "conditional"
+    conditions:
+      - "fx_volatility > 5% implies fx_gain_loss movement"
+      - "stable_fx implies minimal fx_gain_loss"
+    enabled: false  # Requires FX rate data
+
+# Rule evaluation settings
+evaluation_settings:
+  correlation_methods:
+    - "pearson"     # Primary method
+    - "spearman"    # Rank correlation backup
+    
+  significance_tests:
+    p_value_threshold: 0.05
+    confidence_level: 0.95
+    
+  quarterly_cycle_detection:
+    periods_required: 8      # Minimum periods to detect cycles
+    cycle_length: 3          # Quarterly = 3 months
+    tolerance_percentage: 15  # Tolerance for cycle variations
+    
+  time_series_analysis:
+    min_observations: 6      # Minimum data points required
+    trend_significance: 0.05  # P-value for trend significance
+    seasonality_threshold: 0.1 # Strength threshold for seasonality
+
+# Custom rule definitions
+custom_rules:
+  balance_sheet_checks:
+    - name: "Total Assets vs Total Liabilities + Equity"
+      description: "Balance sheet equation must balance"
+      tolerance: 0.01  # 1% tolerance
+      
+  income_statement_checks:
+    - name: "Revenue Recognition Consistency" 
+      description: "Revenue should follow expected patterns"
+      check_type: "pattern_matching"
+      
+  cross_statement_checks:
+    - name: "Depreciation vs Asset Base Consistency"
+      description: "Depreciation should align with asset additions/disposals"
+      check_type: "correlation_validation"
