@@ -120,7 +120,7 @@ analysis_categories:
     - "641100001"  # FX Gain/Loss
     - "515200002"  # FX gains
     - "331100002"  # Accrued expenses
-    
+
   correlation_pairs:
     # Primary -> Correlated account relationships
     investment_properties_depreciation:
