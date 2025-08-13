@@ -11,7 +11,7 @@ from enum import Enum
 
 from config.settings import Settings
 from config.account_mapping import AccountMapper
-from data.loader import FinancialData
+from data.models import FinancialData
 from analysis.variance_analyzer import VarianceResult
 
 
@@ -28,7 +28,7 @@ class CorrelationRule:
     """Definition of a correlation rule."""
     id: int
     name: str
-    primary_account_category: str
+    primary_account_category: any  # Can be str or list of str
     correlated_account_category: str
     relationship_type: RelationshipType
     description: str
@@ -113,7 +113,7 @@ class CorrelationEngine:
             CorrelationRule(
                 id=7,
                 name="Construction in Progress + IP vs VAT Deductible",
-                primary_account_category="investment_properties",
+                primary_account_category=["investment_properties", "construction_in_progress"],
                 correlated_account_category="vat_deductible",
                 relationship_type=RelationshipType.POSITIVE,
                 description="Capital expenditures increase deductible VAT"
@@ -186,9 +186,7 @@ class CorrelationEngine:
         combined_data = self._combine_financial_data(financial_data)
         
         for rule in self.rules:
-            if not rule.enabled:
-                continue
-                
+            # All rules are now enabled - evaluate every rule
             rule_results = self._analyze_rule(rule, combined_data)
             results.extend(rule_results)
         
@@ -210,7 +208,14 @@ class CorrelationEngine:
         results = []
         
         # Get accounts for primary and correlated categories
-        primary_accounts = self._get_accounts_by_category(data, rule.primary_account_category)
+        # Handle both single category and multiple categories
+        if isinstance(rule.primary_account_category, list):
+            primary_accounts = []
+            for category in rule.primary_account_category:
+                primary_accounts.extend(self._get_accounts_by_category(data, category))
+        else:
+            primary_accounts = self._get_accounts_by_category(data, rule.primary_account_category)
+        
         correlated_accounts = self._get_accounts_by_category(data, rule.correlated_account_category)
         
         if not primary_accounts or not correlated_accounts:

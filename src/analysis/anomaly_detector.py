@@ -10,7 +10,7 @@ from enum import Enum
 
 from config.settings import Settings
 from config.account_mapping import AccountMapper
-from data.loader import FinancialData
+from data.models import FinancialData
 from analysis.variance_analyzer import VarianceResult
 from analysis.correlation_engine import CorrelationResult
 

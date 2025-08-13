@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 from config.settings import Settings
 from config.account_mapping import AccountMapper
-from data.loader import FinancialData
+from data.models import FinancialData
 
 
 @dataclass

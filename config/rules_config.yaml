@@ -58,7 +58,7 @@ correlation_rules:
   - id: 7
     name: "Construction in Progress + IP vs VAT Deductible"
     description: "Capital expenditures increase deductible VAT"
-    primary_account_category: "investment_properties"
+    primary_account_category: ["investment_properties", "construction_in_progress"]
     correlated_account_category: "vat_deductible"
     relationship_type: "positive"
     strength_threshold: 0.5
@@ -70,17 +70,17 @@ correlation_rules:
     primary_account_category: "occupancy_rate"
     correlated_account_category: "revenue"
     relationship_type: "positive"
-    strength_threshold: 0.9
-    enabled: false  # Requires occupancy data not in standard financial statements
+    strength_threshold: 0.5
+    enabled: true
     
   - id: 9
     name: "Maintenance Expenses vs OPEX"
-    description: "Maintenance spikes can drive up operating expenses"
+    description: "Maintenance spikes drive up operating expenses"
     primary_account_category: "maintenance_expense"
     correlated_account_category: "opex"
     relationship_type: "positive"
-    strength_threshold: 0.4
-    enabled: false  # Requires detailed OPEX breakdown
+    strength_threshold: 0.5
+    enabled: true
     
   - id: 10
     name: "Asset Disposal vs Depreciation"
@@ -88,8 +88,8 @@ correlation_rules:
     primary_account_category: "asset_disposal"
     correlated_account_category: "depreciation"
     relationship_type: "negative"
-    strength_threshold: 0.6
-    enabled: false  # Requires disposal tracking data
+    strength_threshold: 0.5
+    enabled: true
     
   - id: 11
     name: "New Lease Contracts vs Revenue"
@@ -97,8 +97,8 @@ correlation_rules:
     primary_account_category: "new_leases"
     correlated_account_category: "revenue"
     relationship_type: "positive"
-    strength_threshold: 0.8
-    enabled: false  # Requires lease contract data
+    strength_threshold: 0.5
+    enabled: true
     
   - id: 12
     name: "Lease Termination vs Revenue"
@@ -106,8 +106,8 @@ correlation_rules:
     primary_account_category: "lease_termination"
     correlated_account_category: "revenue"
     relationship_type: "negative"
-    strength_threshold: 0.7
-    enabled: false  # Requires termination tracking data
+    strength_threshold: 0.5
+    enabled: true
     
   - id: 13
     name: "FX Rate Changes vs FX Gain/Loss"
@@ -115,10 +115,8 @@ correlation_rules:
     primary_account_category: "fx_volatility"
     correlated_account_category: "fx_gain_loss"
     relationship_type: "conditional"
-    conditions:
-      - "fx_volatility > 5% implies fx_gain_loss movement"
-      - "stable_fx implies minimal fx_gain_loss"
-    enabled: false  # Requires FX rate data
+    strength_threshold: 0.5
+    enabled: true
 
 # Rule evaluation settings
 evaluation_settings:

@@ -16,6 +16,7 @@ recurring_accounts:
 correlation_thresholds:
   minimum_correlation: 0.3      # Minimum correlation to be considered significant
   p_value_threshold: 0.05       # Statistical significance threshold
+  global_correlation_threshold: 5.0  # Global 5% threshold for correlation rules
   
 # Quarterly pattern thresholds
 quarterly_patterns:
@@ -54,6 +55,7 @@ severity_levels:
 account_tolerances:
   # Balance Sheet accounts
   investment_properties: 3.0    # Lower tolerance for capital assets
+  construction_in_progress: 4.0 # Low tolerance for construction projects
   cash_deposits: 10.0          # Higher tolerance for cash fluctuations
   trade_receivables: 15.0      # Higher tolerance due to billing cycles
   borrowings: 2.0              # Lower tolerance for debt changes

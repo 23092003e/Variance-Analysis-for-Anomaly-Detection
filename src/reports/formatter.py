@@ -25,21 +25,21 @@ class ExcelFormatter:
                 'border': 1
             }),
             'critical': workbook.add_format({
-                'bg_color': '#ff4d4d',
+                'bg_color': '#FF0000',  # Red
                 'font_color': 'white',
                 'bold': True,
                 'border': 1
             }),
             'high': workbook.add_format({
-                'bg_color': '#ff9999',
+                'bg_color': '#FFA500',  # Orange
                 'border': 1
             }),
             'medium': workbook.add_format({
-                'bg_color': '#ffff99',
+                'bg_color': '#FFFF00',  # Yellow
                 'border': 1
             }),
             'low': workbook.add_format({
-                'bg_color': '#ccffcc',
+                'bg_color': '#00FF00',  # Green
                 'border': 1
             }),
             'normal': workbook.add_format({

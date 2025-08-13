@@ -10,7 +10,7 @@ import xlsxwriter
 from datetime import datetime
 
 from config.settings import Settings
-from data.loader import FinancialData
+from data.models import FinancialData
 from analysis.variance_analyzer import VarianceResult
 from analysis.correlation_engine import CorrelationResult
 from analysis.anomaly_detector import Anomaly, AnomalySeverity
@@ -46,8 +46,7 @@ class ExcelGenerator:
         Path(output_file).parent.mkdir(parents=True, exist_ok=True)
         
         # Create workbook and worksheets
-        with pd.ExcelWriter(output_file, engine='xlsxwriter', 
-                           options={'strings_to_numbers': True}) as writer:
+        with pd.ExcelWriter(output_file, engine='xlsxwriter') as writer:
             
             workbook = writer.book
             

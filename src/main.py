@@ -9,6 +9,7 @@ from typing import Optional
 
 from config.settings import Settings
 from data.loader import DataLoader
+from data.dal_loader import DALDataLoader
 from analysis.variance_analyzer import VarianceAnalyzer
 from analysis.correlation_engine import CorrelationEngine
 from analysis.anomaly_detector import AnomalyDetector
@@ -41,10 +42,24 @@ def main(input_file: Optional[str] = None, output_file: Optional[str] = None) ->
             
         # Load and validate data
         logger.info(f"Loading data from {input_file}")
-        data_loader = DataLoader(settings)
-        financial_data = data_loader.load_excel_file(input_file)
         
-        if not data_loader.validate_data(financial_data):
+        # Determine which loader to use based on filename or content
+        if 'DAL' in str(input_file) or 'dal' in str(input_file).lower():
+            logger.info("Using DAL-specific data loader")
+            data_loader = DALDataLoader(settings)
+            try:
+                financial_data = data_loader.load_dal_excel_file(input_file)
+            except Exception as e:
+                logger.warning(f"DAL loader failed: {e}, trying standard loader")
+                data_loader = DataLoader(settings)
+                financial_data = data_loader.load_excel_file(input_file)
+        else:
+            data_loader = DataLoader(settings)
+            financial_data = data_loader.load_excel_file(input_file)
+        
+        # Validate data using standard validator
+        standard_loader = DataLoader(settings)
+        if not standard_loader.validate_data(financial_data):
             logger.error("Data validation failed")
             sys.exit(1)
             

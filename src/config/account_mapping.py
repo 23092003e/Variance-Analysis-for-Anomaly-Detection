@@ -30,6 +30,9 @@ class AccountMapper:
             # Balance Sheet - Assets
             AccountInfo("217000001", "Investment Properties: Land Use Rights", "investment_properties", "BS"),
             AccountInfo("217000006", "Investment Properties: Office Building", "investment_properties", "BS"),
+            AccountInfo("241000001", "Construction in Progress: Building", "construction_in_progress", "BS"),
+            AccountInfo("241000002", "Construction in Progress: Infrastructure", "construction_in_progress", "BS"),
+            AccountInfo("241000003", "Construction in Progress: Equipment", "construction_in_progress", "BS"),
             AccountInfo("112227001", "ACB: Current Account USD - HCM", "cash_deposits", "BS"),
             AccountInfo("112227002", "ACB: Current Account USD - HCM 2", "cash_deposits", "BS"),
             AccountInfo("131100001", "Trade Receivable: Tenant", "trade_receivables", "BS"),
@@ -99,12 +102,14 @@ class AccountMapper:
             
         correlations = {
             "investment_properties": self.get_accounts_by_category("depreciation"),
+            "construction_in_progress": self.get_accounts_by_category("vat_deductible"),
             "borrowings": self.get_accounts_by_category("interest_expense"),
             "cash_deposits": self.get_accounts_by_category("interest_income"),
             "lending": self.get_accounts_by_category("interest_income_shl"),
             "depreciation": self.get_accounts_by_category("investment_properties"),
             "interest_expense": self.get_accounts_by_category("borrowings"),
             "interest_income": self.get_accounts_by_category("cash_deposits"),
+            "vat_deductible": self.get_accounts_by_category("construction_in_progress") + self.get_accounts_by_category("investment_properties"),
         }
         
         return correlations.get(info.category, [])

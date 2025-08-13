@@ -6,7 +6,7 @@ import logging
 import pandas as pd
 from typing import List, Dict, Tuple
 from config.settings import Settings
-from data.loader import FinancialData
+from data.models import FinancialData
 
 
 class DataValidator:

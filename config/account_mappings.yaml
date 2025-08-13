@@ -9,6 +9,11 @@ balance_sheet:
     - "217000007"  # Investment properties: Warehouse
     - "217000008"  # Investment properties: Retail space
     
+  construction_in_progress:
+    - "241000001"  # Construction in Progress: Building
+    - "241000002"  # Construction in Progress: Infrastructure  
+    - "241000003"  # Construction in Progress: Equipment
+    
   cash_deposits:
     - "112227001"  # ACB: Current Account USD - Hcm
     - "112227002"  # ACB: Current Account USD - Hcm 2

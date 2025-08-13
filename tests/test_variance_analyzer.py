@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from config.settings import Settings
 from analysis.variance_analyzer import VarianceAnalyzer, VarianceResult
-from data.loader import FinancialData
+from data.models import FinancialData
 
 
 class TestVarianceAnalyzer:

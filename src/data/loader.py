@@ -6,20 +6,9 @@ import logging
 import pandas as pd
 from pathlib import Path
 from typing import Dict, List, Optional, Any
-from dataclasses import dataclass
 
 from config.settings import Settings
-from data.validator import DataValidator
-
-
-@dataclass
-class FinancialData:
-    """Container for financial data."""
-    balance_sheet: pd.DataFrame
-    income_statement: pd.DataFrame
-    periods: List[str]
-    subsidiaries: List[str]
-    metadata: Dict[str, Any]
+from data.models import FinancialData
 
 
 class DataLoader:
@@ -27,7 +16,6 @@ class DataLoader:
     
     def __init__(self, settings: Settings):
         self.settings = settings
-        self.validator = DataValidator(settings)
         self.logger = logging.getLogger(__name__)
     
     def load_excel_file(self, file_path: str) -> FinancialData:
@@ -234,4 +222,6 @@ class DataLoader:
     
     def validate_data(self, financial_data: FinancialData) -> bool:
         """Validate loaded financial data."""
-        return self.validator.validate(financial_data)
+        from data.validator import DataValidator
+        validator = DataValidator(self.settings)
+        return validator.validate(financial_data)
