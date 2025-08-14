@@ -13,6 +13,7 @@ from config.settings import Settings
 from config.account_mapping import AccountMapper
 from data.models import FinancialData
 from analysis.variance_analyzer import VarianceResult
+from utils.calculations import calculate_variance_percentage, CorrelationCalculator
 
 
 class RelationshipType(Enum):
@@ -57,116 +58,46 @@ class CorrelationEngine:
         self.settings = settings
         self.account_mapper = AccountMapper()
         self.logger = logging.getLogger(__name__)
-        self.rules = self._initialize_rules()
+        self.rules = self._load_rules_from_config()
+        self.correlation_calculator = CorrelationCalculator()
     
-    def _initialize_rules(self) -> List[CorrelationRule]:
-        """Initialize the 13 correlation rules."""
-        return [
-            CorrelationRule(
-                id=1,
-                name="Investment Properties vs Depreciation",
-                primary_account_category="investment_properties",
-                correlated_account_category="depreciation",
-                relationship_type=RelationshipType.POSITIVE,
-                description="As Investment Properties increase, Depreciation should increase proportionally"
-            ),
-            CorrelationRule(
-                id=2,
-                name="Loan Balance vs Interest Expenses",
-                primary_account_category="borrowings",
-                correlated_account_category="interest_expense",
-                relationship_type=RelationshipType.POSITIVE,
-                description="Higher loan balance should lead to higher interest costs"
-            ),
-            CorrelationRule(
-                id=3,
-                name="Cash Deposits vs Bank Interest Income",
-                primary_account_category="cash_deposits",
-                correlated_account_category="interest_income",
-                relationship_type=RelationshipType.POSITIVE,
-                description="More cash in bank should earn more interest income"
-            ),
-            CorrelationRule(
-                id=4,
-                name="Trade Receivables vs Quarterly Billing",
-                primary_account_category="trade_receivables",
-                correlated_account_category="revenue",
-                relationship_type=RelationshipType.QUARTERLY_CYCLE,
-                description="Receivables spike at start of quarter due to quarterly billing"
-            ),
-            CorrelationRule(
-                id=5,
-                name="Unbilled Revenue vs Quarter Timing",
-                primary_account_category="unbilled_revenue",
-                correlated_account_category="revenue",
-                relationship_type=RelationshipType.QUARTERLY_CYCLE,
-                description="Unbilled revenue peaks at quarter-end due to straight-lining"
-            ),
-            CorrelationRule(
-                id=6,
-                name="Unearned Revenue vs Advance Collection",
-                primary_account_category="unearned_revenue",
-                correlated_account_category="revenue",
-                relationship_type=RelationshipType.QUARTERLY_CYCLE,
-                description="Unearned revenue increases at start of quarter from advance collection"
-            ),
-            CorrelationRule(
-                id=7,
-                name="Construction in Progress + IP vs VAT Deductible",
-                primary_account_category=["investment_properties", "construction_in_progress"],
-                correlated_account_category="vat_deductible",
-                relationship_type=RelationshipType.POSITIVE,
-                description="Capital expenditures increase deductible VAT"
-            ),
-            CorrelationRule(
-                id=8,
-                name="Occupancy Rate vs Revenue",
-                primary_account_category="occupancy_rate",
-                correlated_account_category="revenue",
-                relationship_type=RelationshipType.POSITIVE,
-                description="Higher occupancy should lead to more rental income"
-            ),
-            CorrelationRule(
-                id=9,
-                name="Maintenance Expenses vs OPEX",
-                primary_account_category="maintenance_expense",
-                correlated_account_category="opex",
-                relationship_type=RelationshipType.POSITIVE,
-                description="Maintenance spikes drive up operating expenses"
-            ),
-            CorrelationRule(
-                id=10,
-                name="Asset Disposal vs Depreciation",
-                primary_account_category="asset_disposal",
-                correlated_account_category="depreciation",
-                relationship_type=RelationshipType.NEGATIVE,
-                description="Disposal of assets should reduce depreciation base"
-            ),
-            CorrelationRule(
-                id=11,
-                name="New Lease Contracts vs Revenue",
-                primary_account_category="new_leases",
-                correlated_account_category="revenue",
-                relationship_type=RelationshipType.POSITIVE,
-                description="New tenants should increase rental income"
-            ),
-            CorrelationRule(
-                id=12,
-                name="Lease Termination vs Revenue",
-                primary_account_category="lease_termination",
-                correlated_account_category="revenue",
-                relationship_type=RelationshipType.NEGATIVE,
-                description="Terminations should reduce rental income"
-            ),
-            CorrelationRule(
-                id=13,
-                name="FX Rate Changes vs FX Gain/Loss",
-                primary_account_category="fx_volatility",
-                correlated_account_category="fx_gain_loss",
-                relationship_type=RelationshipType.CONDITIONAL,
-                description="Currency fluctuations should reflect in FX gains/losses"
+    def _load_rules_from_config(self) -> List[CorrelationRule]:
+        """Load correlation rules from YAML configuration."""
+        rules = []
+        
+        rule_configs = self.settings.get_correlation_rules()
+        
+        for rule_config in rule_configs:
+            if not rule_config.get('enabled', True):
+                continue
+                
+            # Map relationship type string to enum
+            relationship_mapping = {
+                'positive': RelationshipType.POSITIVE,
+                'negative': RelationshipType.NEGATIVE,
+                'quarterly_cycle': RelationshipType.QUARTERLY_CYCLE,
+                'conditional': RelationshipType.CONDITIONAL
+            }
+            
+            relationship_type = relationship_mapping.get(
+                rule_config.get('relationship_type', 'positive'),
+                RelationshipType.POSITIVE
             )
-        ]
+            
+            rule = CorrelationRule(
+                id=rule_config['id'],
+                name=rule_config['name'],
+                primary_account_category=rule_config['primary_account_category'],
+                correlated_account_category=rule_config['correlated_account_category'],
+                relationship_type=relationship_type,
+                description=rule_config.get('description', ''),
+                enabled=rule_config.get('enabled', True)
+            )
+            
+            rules.append(rule)
+            
+        self.logger.info(f"Loaded {len(rules)} correlation rules from configuration")
+        return rules
     
     def analyze(self, financial_data: FinancialData) -> List[CorrelationResult]:
         """
@@ -186,9 +117,9 @@ class CorrelationEngine:
         combined_data = self._combine_financial_data(financial_data)
         
         for rule in self.rules:
-            # All rules are now enabled - evaluate every rule
-            rule_results = self._analyze_rule(rule, combined_data)
-            results.extend(rule_results)
+            if rule.enabled:  # Only process enabled rules
+                rule_results = self._analyze_rule(rule, combined_data)
+                results.extend(rule_results)
         
         self.logger.info(f"Correlation analysis completed: {len(results)} results")
         
@@ -287,10 +218,8 @@ class CorrelationEngine:
         current_value = account_row[current_period].iloc[0] if pd.notna(account_row[current_period].iloc[0]) else 0.0
         previous_value = account_row[previous_period].iloc[0] if pd.notna(account_row[previous_period].iloc[0]) else 0.0
         
-        if previous_value != 0:
-            return ((current_value - previous_value) / abs(previous_value)) * 100
-        else:
-            return 100.0 if current_value != 0 else 0.0
+        # Use centralized calculation
+        return calculate_variance_percentage(current_value, previous_value)
     
     def _check_rule_violation(self, rule: CorrelationRule, 
                             primary_variance: float, correlated_variance: float) -> Optional[Dict]:
@@ -313,7 +242,7 @@ class CorrelationEngine:
     def _check_positive_relationship(self, rule: CorrelationRule, 
                                    primary_var: float, correlated_var: float) -> Optional[Dict]:
         """Check positive correlation rule."""
-        threshold = 5.0  # 5% threshold for significance
+        threshold = self.settings.get_correlation_threshold()  # Get threshold from config
         
         # Primary increased significantly but correlated didn't
         if primary_var > threshold and abs(correlated_var) < threshold:
@@ -347,7 +276,7 @@ class CorrelationEngine:
     def _check_negative_relationship(self, rule: CorrelationRule, 
                                    primary_var: float, correlated_var: float) -> Optional[Dict]:
         """Check negative correlation rule."""
-        threshold = 5.0
+        threshold = self.settings.get_correlation_threshold()
         
         # Same direction movements
         if primary_var > threshold and correlated_var > threshold:

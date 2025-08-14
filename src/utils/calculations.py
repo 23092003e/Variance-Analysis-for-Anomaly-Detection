@@ -7,6 +7,59 @@ import pandas as pd
 from typing import List, Tuple, Optional, Union
 from scipy import stats
 import warnings
+from typing import Dict
+
+
+def has_sign_change(current: float, previous: float) -> bool:
+    """
+    Check if there's a sign change between periods.
+    
+    Args:
+        current: Current period value
+        previous: Previous period value
+        
+    Returns:
+        True if there's a sign change
+    """
+    if previous == 0 and current != 0:
+        return True
+    if previous != 0 and current == 0:
+        return True
+    if previous > 0 and current < 0:
+        return True
+    if previous < 0 and current > 0:
+        return True
+    return False
+
+
+def calculate_variance_percentage(current: float, previous: float) -> float:
+    """
+    Calculate variance percentage between two values.
+    
+    Args:
+        current: Current period value
+        previous: Previous period value
+        
+    Returns:
+        Variance percentage
+    """
+    if previous == 0:
+        return 100.0 if current != 0 else 0.0
+    return ((current - previous) / abs(previous)) * 100
+
+
+def calculate_variance_amount(current: float, previous: float) -> float:
+    """
+    Calculate absolute variance amount between two values.
+    
+    Args:
+        current: Current period value
+        previous: Previous period value
+        
+    Returns:
+        Variance amount
+    """
+    return current - previous
 
 
 class VarianceCalculator:

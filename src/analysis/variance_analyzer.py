@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from config.settings import Settings
 from config.account_mapping import AccountMapper
 from data.models import FinancialData
+from utils.calculations import has_sign_change, calculate_variance_percentage, calculate_variance_amount
 
 
 @dataclass
@@ -96,21 +97,21 @@ class VarianceAnalyzer:
             current_value = row[current_period] if pd.notna(row[current_period]) else 0.0
             previous_value = row[previous_period] if pd.notna(row[previous_period]) else 0.0
             
-            # Calculate variance
-            variance_amount = current_value - previous_value
-            
-            # Calculate percentage variance
-            if previous_value != 0:
-                variance_percent = (variance_amount / abs(previous_value)) * 100
-            else:
-                variance_percent = 100.0 if current_value != 0 else 0.0
+            # Calculate variance using centralized functions
+            variance_amount = calculate_variance_amount(current_value, previous_value)
+            variance_percent = calculate_variance_percentage(current_value, previous_value)
             
             # Determine if variance is significant
             threshold = self.settings.get_variance_threshold(category)
             is_significant = abs(variance_percent) >= threshold
             
             # Check for sign changes (always significant)
-            if self._has_sign_change(current_value, previous_value):
+            if has_sign_change(current_value, previous_value):
+                is_significant = True
+                
+            # Check materiality threshold for the specific account
+            materiality_threshold = self.settings.get_materiality_threshold(account_code)
+            if abs(variance_percent) >= materiality_threshold:
                 is_significant = True
             
             result = VarianceResult(
@@ -131,17 +132,7 @@ class VarianceAnalyzer:
         
         return results
     
-    def _has_sign_change(self, current: float, previous: float) -> bool:
-        """Check if there's a sign change between periods."""
-        if previous == 0 and current != 0:
-            return True
-        if previous != 0 and current == 0:
-            return True
-        if previous > 0 and current < 0:
-            return True
-        if previous < 0 and current > 0:
-            return True
-        return False
+    # Removed _has_sign_change method - now using centralized function from utils.calculations
     
     def get_significant_variances(self, results: List[VarianceResult]) -> List[VarianceResult]:
         """Filter results to only significant variances."""

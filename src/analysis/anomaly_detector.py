@@ -13,6 +13,7 @@ from config.account_mapping import AccountMapper
 from data.models import FinancialData
 from analysis.variance_analyzer import VarianceResult
 from analysis.correlation_engine import CorrelationResult
+from utils.calculations import has_sign_change
 
 
 class AnomalyType(Enum):
@@ -111,15 +112,33 @@ class AnomalyDetector:
             if not result.is_significant:
                 continue
             
-            # Determine severity based on variance percentage
-            if abs(result.variance_percent) >= 20:
+            # Determine severity based on configured thresholds
+            severity_thresholds = self.settings.get_severity_thresholds()
+            
+            if abs(result.variance_percent) >= severity_thresholds['critical']['variance_threshold']:
                 severity = AnomalySeverity.CRITICAL
-            elif abs(result.variance_percent) >= 10:
+            elif abs(result.variance_percent) >= severity_thresholds['high']['variance_threshold']:
                 severity = AnomalySeverity.HIGH
-            elif abs(result.variance_percent) >= 5:
+            elif abs(result.variance_percent) >= severity_thresholds['medium']['variance_threshold']:
                 severity = AnomalySeverity.MEDIUM
             else:
                 severity = AnomalySeverity.LOW
+                
+            # Also check absolute amount thresholds
+            abs_amount = abs(result.variance_amount)
+            severity_order = {AnomalySeverity.LOW: 1, AnomalySeverity.MEDIUM: 2, AnomalySeverity.HIGH: 3, AnomalySeverity.CRITICAL: 4}
+            
+            amount_severity = severity
+            if abs_amount >= severity_thresholds['critical']['absolute_threshold']:
+                amount_severity = AnomalySeverity.CRITICAL
+            elif abs_amount >= severity_thresholds['high']['absolute_threshold']:
+                amount_severity = AnomalySeverity.HIGH
+            elif abs_amount >= severity_thresholds['medium']['absolute_threshold']:
+                amount_severity = AnomalySeverity.MEDIUM
+                
+            # Use the higher severity
+            if severity_order[amount_severity] > severity_order[severity]:
+                severity = amount_severity
             
             # Generate description
             direction = "increased" if result.variance_amount > 0 else "decreased"
@@ -195,7 +214,7 @@ class AnomalyDetector:
         anomalies = []
         
         for result in results:
-            if not self._has_sign_change(result.current_value, result.previous_value):
+            if not has_sign_change(result.current_value, result.previous_value):
                 continue
             
             # Sign changes are always significant
@@ -235,16 +254,22 @@ class AnomalyDetector:
         """Detect anomalies in recurring accounts (should be stable)."""
         anomalies = []
         
-        recurring_accounts = self.account_mapper.get_recurring_accounts()
+        recurring_accounts = self.settings.get_recurring_account_codes()
         
         for result in results:
             if result.account_code not in recurring_accounts:
                 continue
             
-            # Recurring accounts should be stable - lower thresholds
-            if abs(result.variance_percent) >= 5:  # 5% threshold for recurring accounts
+            # Get recurring account threshold from config (±5% as defined)
+            recurring_threshold = self.settings.get_variance_threshold('recurring')
+            if abs(result.variance_percent) >= recurring_threshold:
                 
-                severity = AnomalySeverity.HIGH if abs(result.variance_percent) >= 10 else AnomalySeverity.MEDIUM
+                # Use configured thresholds for severity
+                severity_thresholds = self.settings.get_severity_thresholds()
+                if abs(result.variance_percent) >= severity_thresholds['high']['variance_threshold']:
+                    severity = AnomalySeverity.HIGH
+                else:
+                    severity = AnomalySeverity.MEDIUM
                 
                 description = (f"Recurring account showed {abs(result.variance_percent):.1f}% variance "
                              f"(expected to be stable)")
@@ -274,15 +299,18 @@ class AnomalyDetector:
         """Detect breaks in expected quarterly patterns."""
         anomalies = []
         
-        # Accounts that should follow quarterly patterns
-        quarterly_accounts = ['trade_receivables', 'unbilled_revenue', 'unearned_revenue']
+        # Get cyclical accounts from configuration
+        cyclical_accounts = self.settings.get_cyclical_account_codes()
         
         for result in results:
-            if result.category not in quarterly_accounts:
+            if result.account_code not in cyclical_accounts:
                 continue
             
-            # Check if the pattern seems unusual (simplified check)
-            if abs(result.variance_percent) > 30:  # Large swings in quarterly accounts
+            # Get quarterly pattern threshold from config
+            quarterly_config = self.settings.thresholds.get('quarterly_patterns', {})
+            pattern_threshold = quarterly_config.get(result.category, {}).get('end_quarter_peak', 30.0)
+            
+            if abs(result.variance_percent) > pattern_threshold:
                 
                 anomaly = Anomaly(
                     id=f"QUART_{result.account_code}_{result.period_to}",
@@ -304,17 +332,7 @@ class AnomalyDetector:
         
         return anomalies
     
-    def _has_sign_change(self, current: float, previous: float) -> bool:
-        """Check if there's a sign change between periods."""
-        if previous == 0 and current != 0:
-            return True
-        if previous != 0 and current == 0:
-            return True
-        if previous > 0 and current < 0:
-            return True
-        if previous < 0 and current > 0:
-            return True
-        return False
+    # Removed _has_sign_change method - now using centralized function from utils.calculations
     
     def _recommend_action_for_variance(self, result: VarianceResult, severity: AnomalySeverity) -> str:
         """Recommend action for variance anomalies."""
