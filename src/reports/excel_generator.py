@@ -73,6 +73,9 @@ class ExcelGenerator:
                 'Amount': '',
                 'Severity': '',
                 'Type': '',
+                'Rule ID': '',
+                'Rule Name': '',
+                'Rule Description': '',
                 'Suggested Reason': '',
                 'Logic Trigger': ''
             }]
@@ -84,8 +87,8 @@ class ExcelGenerator:
                 # Create account description
                 account_desc = f"{anomaly.account_name} ({anomaly.account_code})"
                 
-                # Format percentage change
-                pct_change = f"{anomaly.variance_percent:.1f}%" if anomaly.variance_percent else "N/A"
+                # Store raw percentage for formatting, display string for column
+                pct_change = anomaly.variance_percent if anomaly.variance_percent else 0
                 
                 # Calculate variance amount
                 variance_amount = anomaly.current_value - (anomaly.previous_value or 0)
@@ -96,6 +99,9 @@ class ExcelGenerator:
                     'Amount': variance_amount,
                     'Severity': anomaly.severity.value.upper(),
                     'Type': anomaly.type.value.replace('_', ' ').title(),
+                    'Rule ID': anomaly.rule_violation_id or '',
+                    'Rule Name': anomaly.rule_violation_name or '',
+                    'Rule Description': anomaly.rule_violation_description or '',
                     'Suggested Reason': anomaly.recommended_action,
                     'Logic Trigger': anomaly.logic_trigger or "Standard threshold check",
                     'Period': anomaly.period,
@@ -118,7 +124,7 @@ class ExcelGenerator:
             'bold': True, 'font_size': 18, 'align': 'center',
             'bg_color': '#1f4e79', 'font_color': 'white'
         })
-        worksheet.merge_range('A1:K1', 'VARIANCE ANALYSIS - ANOMALIES SUMMARY', title_format)
+        worksheet.merge_range('A1:N1', 'VARIANCE ANALYSIS - ANOMALIES SUMMARY', title_format)
         
         # Add subtitle with key information
         subtitle_format = workbook.add_format({
@@ -129,13 +135,13 @@ class ExcelGenerator:
         high_count = sum(1 for a in anomalies if a.severity.value == 'high')
         
         subtitle_text = f'Generated: {timestamp} | Total Anomalies: {len(anomalies)} | Critical: {critical_count} | High Priority: {high_count}'
-        worksheet.merge_range('A2:K2', subtitle_text, subtitle_format)
+        worksheet.merge_range('A2:N2', subtitle_text, subtitle_format)
         
         # Add instructions
         instruction_format = workbook.add_format({
             'font_size': 9, 'italic': True, 'align': 'left'
         })
-        worksheet.merge_range('A3:K3', 'Instructions: Critical and High severity items require immediate attention. Review suggested reasons and take recommended actions.', instruction_format)
+        worksheet.merge_range('A3:N3', 'Instructions: Critical and High severity items require immediate attention. Review Rule ID and Description for specific violation details.', instruction_format)
         
         # Apply conditional formatting
         if len(df_summary) > 0 and len(anomalies) > 0:
@@ -218,15 +224,22 @@ class ExcelGenerator:
         correlation_data = []
         for result in correlation_results:
             if result.is_violation:
+                # Convert rule ID to standardized format
+                from analysis.rule_violations import get_correlation_rule_id, get_rule_violation
+                
+                standard_rule_id = get_correlation_rule_id(result.rule_id)
+                rule_violation = get_rule_violation(standard_rule_id)
+                
                 correlation_data.append({
-                    'Rule ID': result.rule_id,
-                    'Rule Name': result.rule_name,
+                    'Rule ID': standard_rule_id,
+                    'Rule Name': rule_violation.rule_name if rule_violation else result.rule_name,
+                    'Rule Description': rule_violation.description if rule_violation else result.violation_description,
                     'Primary Account': result.primary_account,
                     'Correlated Account': result.correlated_account,
                     'Primary Variance %': result.primary_variance,
                     'Correlated Variance %': result.correlated_variance,
                     'Expected Relationship': result.expected_relationship.value,
-                    'Violation Description': result.violation_description,
+                    'Violation Details': result.violation_description,
                     'Severity': result.severity.upper()
                 })
         
@@ -243,7 +256,7 @@ class ExcelGenerator:
             'bold': True, 'font_size': 14, 'align': 'center',
             'bg_color': '#c55a11', 'font_color': 'white'
         })
-        worksheet.merge_range('A1:I1', 'CORRELATION RULE VIOLATIONS', title_format)
+        worksheet.merge_range('A1:J1', 'CORRELATION RULE VIOLATIONS', title_format)
         
         # Apply conditional formatting
         if len(df_correlation) > 0:

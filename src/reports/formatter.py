@@ -92,13 +92,13 @@ class ExcelFormatter:
             # Apply format to entire row
             for col in range(len(df.columns)):
                 cell_value = row.iloc[col]
-                if col in [6, 7]:  # Current/Previous Value columns
+                if col in [11, 12]:  # Current/Previous Value columns (adjusted for new rule columns)
                     worksheet.write(row_num, col, cell_value, self.formats['currency'])
-                elif col == 8:  # Variance % column
-                    if pd.notna(cell_value):
+                elif col == 1:  # Variance % column (% Change)
+                    if pd.notna(cell_value) and isinstance(cell_value, (int, float)):
                         worksheet.write(row_num, col, cell_value / 100, self.formats['percentage'])
                     else:
-                        worksheet.write(row_num, col, '', format_style)
+                        worksheet.write(row_num, col, cell_value, format_style)
                 else:
                     worksheet.write(row_num, col, cell_value, format_style)
     
@@ -163,12 +163,12 @@ class ExcelFormatter:
             # Apply formatting to the entire row
             for col in range(len(df.columns)):
                 cell_value = row.iloc[col]
-                if col in [4, 5]:  # Variance percentage columns
-                    if pd.notna(cell_value):
+                if col in [5, 6]:  # Variance percentage columns (adjusted for new columns)
+                    if pd.notna(cell_value) and isinstance(cell_value, (int, float)):
                         worksheet.write(row_num, col, cell_value / 100, self.formats['percentage'])
                     else:
                         worksheet.write(row_num, col, '', format_style)
-                elif col == 8:  # Severity column
+                elif col == 9:  # Severity column (adjusted for new columns)
                     worksheet.write(row_num, col, cell_value, format_style)
                 else:
                     worksheet.write(row_num, col, cell_value, self.formats['normal'])

@@ -13,6 +13,10 @@ from config.account_mapping import AccountMapper
 from data.models import FinancialData
 from analysis.variance_analyzer import VarianceResult
 from analysis.correlation_engine import CorrelationResult
+from analysis.rule_violations import (
+    get_rule_violation, get_variance_rule_for_category, 
+    get_correlation_rule_id, get_materiality_rule_for_threshold
+)
 from utils.calculations import has_sign_change
 
 
@@ -46,10 +50,13 @@ class Anomaly:
     current_value: float
     previous_value: Optional[float]
     variance_percent: Optional[float]
-    rule_violated: Optional[str]
+    rule_violated: Optional[str]  # Kept for backward compatibility
     recommended_action: str
     period: str
     logic_trigger: Optional[str] = None  # Explanation of why anomaly was flagged
+    rule_violation_id: Optional[str] = None  # Unique rule ID (e.g., "VT002", "CR001")
+    rule_violation_name: Optional[str] = None  # Rule name for display
+    rule_violation_description: Optional[str] = None  # Brief rule description  # Explanation of why anomaly was flagged
 
 
 class AnomalyDetector:
@@ -133,6 +140,25 @@ class AnomalyDetector:
             else:
                 severity = AnomalySeverity.LOW
             
+            # Get rule violation information
+            rule_id = get_variance_rule_for_category(result.category)
+            rule_violation = get_rule_violation(rule_id)
+            
+            # Check for materiality-specific rules
+            materiality_config = self.settings.account_mappings.get("materiality_thresholds", {})
+            account_has_specific_materiality = any(
+                result.account_code in config.get("accounts", [])
+                for config in materiality_config.values()
+            )
+            
+            if account_has_specific_materiality:
+                materiality_threshold = self.settings.get_materiality_threshold(result.account_code)
+                materiality_rule_id = get_materiality_rule_for_threshold(materiality_threshold)
+                materiality_rule = get_rule_violation(materiality_rule_id)
+                if materiality_rule:
+                    rule_violation = materiality_rule
+                    rule_id = materiality_rule_id
+            
             # Generate description
             direction = "increased" if result.variance_amount > 0 else "decreased"
             description = (f"Account {direction} by {abs_percent:.1f}% "
@@ -155,10 +181,13 @@ class AnomalyDetector:
                 current_value=result.current_value,
                 previous_value=result.previous_value,
                 variance_percent=result.variance_percent,
-                rule_violated=None,
+                rule_violated=rule_violation.rule_name if rule_violation else "Variance Threshold",
                 recommended_action=suggested_reason,
                 period=result.period_to,
-                logic_trigger=logic_trigger  # Add logic trigger
+                logic_trigger=logic_trigger,
+                rule_violation_id=rule_id,
+                rule_violation_name=rule_violation.rule_name if rule_violation else "Variance Threshold",
+                rule_violation_description=rule_violation.description if rule_violation else "Account variance exceeds threshold"
             )
             
             anomalies.append(anomaly)
@@ -186,6 +215,10 @@ class AnomalyDetector:
             account_name = account_info.name if account_info else result.primary_account
             category = account_info.category if account_info else 'unknown'
             
+            # Get correlation rule violation information
+            correlation_rule_id = get_correlation_rule_id(result.rule_id)
+            rule_violation = get_rule_violation(correlation_rule_id)
+            
             anomaly = Anomaly(
                 id=f"CORR_{result.rule_id}_{result.primary_account}",
                 type=AnomalyType.CORRELATION_VIOLATION,
@@ -200,7 +233,10 @@ class AnomalyDetector:
                 rule_violated=result.rule_name,
                 recommended_action="Operational changes or accounting adjustments",
                 period="Current",
-                logic_trigger=f"Correlation rule violation: {result.rule_name}"
+                logic_trigger=f"Correlation rule violation: {result.rule_name}",
+                rule_violation_id=correlation_rule_id,
+                rule_violation_name=rule_violation.rule_name if rule_violation else result.rule_name,
+                rule_violation_description=rule_violation.description if rule_violation else result.violation_description
             )
             
             anomalies.append(anomaly)
@@ -217,6 +253,16 @@ class AnomalyDetector:
             
             # Sign changes are always significant
             severity = AnomalySeverity.HIGH
+            
+            # Determine which sign change rule applies
+            if result.previous_value != 0 and result.current_value == 0:
+                rule_id = "SC002"  # Zero balance change
+            elif result.previous_value == 0 and result.current_value != 0:
+                rule_id = "SC002"  # Zero balance change
+            else:
+                rule_id = "SC001"  # Sign change
+            
+            rule_violation = get_rule_violation(rule_id)
             
             # Describe the sign change
             if result.previous_value > 0 and result.current_value < 0:
@@ -239,10 +285,13 @@ class AnomalyDetector:
                 current_value=result.current_value,
                 previous_value=result.previous_value,
                 variance_percent=result.variance_percent,
-                rule_violated=None,
+                rule_violated=rule_violation.rule_name if rule_violation else "Sign Change Detection",
                 recommended_action="Account sign change - verify data accuracy and business events",
                 period=result.period_to,
-                logic_trigger="Sign change detected"
+                logic_trigger="Sign change detected",
+                rule_violation_id=rule_id,
+                rule_violation_name=rule_violation.rule_name if rule_violation else "Sign Change Detection",
+                rule_violation_description=rule_violation.description if rule_violation else "Account sign changed unexpectedly"
             )
             
             anomalies.append(anomaly)
@@ -281,6 +330,10 @@ class AnomalyDetector:
                 else:
                     severity = AnomalySeverity.LOW
                 
+                # Get recurring account rule violation information
+                rule_id = "RA001"
+                rule_violation = get_rule_violation(rule_id)
+                
                 description = (f"Recurring account showed {abs_percent:.1f}% variance "
                              f"(expected to be stable)")
                 
@@ -295,10 +348,13 @@ class AnomalyDetector:
                     current_value=result.current_value,
                     previous_value=result.previous_value,
                     variance_percent=result.variance_percent,
-                    rule_violated=None,
+                    rule_violated=rule_violation.rule_name if rule_violation else "Recurring Account Stability",
                     recommended_action="Operational changes or accounting adjustments",
                     period=result.period_to,
-                    logic_trigger=f"Recurring account exceeds {recurring_threshold}% stability threshold ({abs_percent:.1f}%)"
+                    logic_trigger=f"Recurring account exceeds {recurring_threshold}% stability threshold ({abs_percent:.1f}%)",
+                    rule_violation_id=rule_id,
+                    rule_violation_name=rule_violation.rule_name if rule_violation else "Recurring Account Stability",
+                    rule_violation_description=rule_violation.description if rule_violation else "Recurring account exceeded stability threshold"
                 )
                 
                 anomalies.append(anomaly)
@@ -340,6 +396,14 @@ class AnomalyDetector:
                 else:
                     severity = AnomalySeverity.LOW
                 
+                # Determine specific quarterly rule based on account category
+                if result.category in ['trade_receivables']:
+                    rule_id = "QP001"  # Quarterly billing cycle
+                else:
+                    rule_id = "QP002"  # General cyclical pattern
+                
+                rule_violation = get_rule_violation(rule_id)
+                
                 anomaly = Anomaly(
                     id=f"QUART_{result.account_code}_{result.period_to}",
                     type=AnomalyType.QUARTERLY_PATTERN_BREAK,
@@ -351,10 +415,13 @@ class AnomalyDetector:
                     current_value=result.current_value,
                     previous_value=result.previous_value,
                     variance_percent=result.variance_percent,
-                    rule_violated=None,
+                    rule_violated=rule_violation.rule_name if rule_violation else "Quarterly Pattern Check",
                     recommended_action="Deviation from expected quarterly pattern - check billing cycles",
                     period=result.period_to,
-                    logic_trigger=f"Cyclical account exceeds quarterly pattern threshold ({abs_percent:.1f}% > {pattern_threshold}%)"
+                    logic_trigger=f"Cyclical account exceeds quarterly pattern threshold ({abs_percent:.1f}% > {pattern_threshold}%)",
+                    rule_violation_id=rule_id,
+                    rule_violation_name=rule_violation.rule_name if rule_violation else "Quarterly Pattern Check",
+                    rule_violation_description=rule_violation.description if rule_violation else "Account deviated from expected quarterly pattern"
                 )
                 
                 anomalies.append(anomaly)
@@ -390,7 +457,7 @@ class AnomalyDetector:
     
     def _get_suggested_reason(self, result: VarianceResult) -> str:
         """Get suggested reason based on anomaly characteristics."""
-        from src.utils.calculations import has_sign_change
+        from utils.calculations import has_sign_change
         
         # Check for sign change first
         if has_sign_change(result.current_value, result.previous_value):
@@ -407,7 +474,7 @@ class AnomalyDetector:
     def _get_logic_trigger(self, result: VarianceResult, severity: AnomalySeverity, 
                           abs_percent: float, abs_amount: float, severity_thresholds: dict) -> str:
         """Generate logic trigger explanation for why anomaly was flagged."""
-        from src.utils.calculations import has_sign_change
+        from utils.calculations import has_sign_change
         
         # Check for sign change
         if has_sign_change(result.current_value, result.previous_value):
