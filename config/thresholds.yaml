@@ -8,7 +8,9 @@ critical_threshold: 10.0       # Threshold for critical anomalies
 recurring_accounts:
   depreciation: 5.0             # Depreciation should be stable
   revenue: 5.0                  # Revenue variance threshold
-  opex: 5.0                     # Operating expenses threshold
+  opex: 10.0                    # G&A: Operating expenses threshold (10% for G&A)
+  staff_costs: 10.0             # G&A: Staff costs threshold (10% for G&A)
+  other_expenses: 10.0          # G&A: Other administrative expenses (10% for G&A)
   interest_expense: 5.0         # Interest expense threshold
   interest_income: 5.0          # Interest income threshold
   
@@ -63,4 +65,6 @@ account_tolerances:
   # Income Statement accounts
   rental_revenue: 5.0          # Moderate tolerance for revenue
   financial_expenses: 8.0      # Moderate tolerance for interest
-  operating_expenses: 7.0      # Moderate tolerance for OPEX
+  operating_expenses: 10.0     # G&A: Moderate tolerance for OPEX (10% for G&A)
+  staff_costs: 10.0            # G&A: Staff costs tolerance (10% for G&A)
+  other_expenses: 10.0         # G&A: Other administrative expenses tolerance (10% for G&A)

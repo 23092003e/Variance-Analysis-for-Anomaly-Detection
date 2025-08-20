@@ -68,42 +68,40 @@ class ExcelGenerator:
             self.logger.warning("No anomalies found - creating empty summary sheet")
             # Create empty sheet with headers
             empty_data = [{
-                'Subsidiary': '',
-                'Metric': '',
-                'Period': '',
+                'Account': '',
                 '% Change': '',
-                'Suggested Reason': ''
+                'Amount': '',
+                'Severity': '',
+                'Type': '',
+                'Suggested Reason': '',
+                'Logic Trigger': ''
             }]
             df_summary = pd.DataFrame(empty_data)
         else:
             # Prepare data for anomalies summary matching the required format
             summary_data = []
             for anomaly in anomalies:
-                # Extract subsidiary from account name or use account code
-                subsidiary = self._extract_subsidiary(anomaly.account_name, anomaly.account_code)
-                
-                # Create metric description
-                metric = f"{anomaly.account_name} ({anomaly.account_code})"
+                # Create account description
+                account_desc = f"{anomaly.account_name} ({anomaly.account_code})"
                 
                 # Format percentage change
                 pct_change = f"{anomaly.variance_percent:.1f}%" if anomaly.variance_percent else "N/A"
                 
-                # Generate suggested reason based on anomaly type and description
-                suggested_reason = self._generate_suggested_reason(anomaly)
+                # Calculate variance amount
+                variance_amount = anomaly.current_value - (anomaly.previous_value or 0)
                 
                 summary_data.append({
-                    'Subsidiary': subsidiary,
-                    'Metric': metric,
-                    'Period': anomaly.period,
+                    'Account': account_desc,
                     '% Change': pct_change,
-                    'Suggested Reason': suggested_reason,
+                    'Amount': variance_amount,
                     'Severity': anomaly.severity.value.upper(),
                     'Type': anomaly.type.value.replace('_', ' ').title(),
+                    'Suggested Reason': anomaly.recommended_action,
+                    'Logic Trigger': anomaly.logic_trigger or "Standard threshold check",
+                    'Period': anomaly.period,
                     'Current Value': anomaly.current_value,
                     'Previous Value': anomaly.previous_value or 0,
-                    'Variance Amount': anomaly.current_value - (anomaly.previous_value or 0),
-                    'Category': anomaly.category.replace('_', ' ').title(),
-                    'Recommended Action': anomaly.recommended_action
+                    'Category': anomaly.category.replace('_', ' ').title()
                 })
             
             df_summary = pd.DataFrame(summary_data)
@@ -120,7 +118,7 @@ class ExcelGenerator:
             'bold': True, 'font_size': 18, 'align': 'center',
             'bg_color': '#1f4e79', 'font_color': 'white'
         })
-        worksheet.merge_range('A1:L1', 'VARIANCE ANALYSIS - ANOMALIES SUMMARY', title_format)
+        worksheet.merge_range('A1:K1', 'VARIANCE ANALYSIS - ANOMALIES SUMMARY', title_format)
         
         # Add subtitle with key information
         subtitle_format = workbook.add_format({
@@ -131,22 +129,22 @@ class ExcelGenerator:
         high_count = sum(1 for a in anomalies if a.severity.value == 'high')
         
         subtitle_text = f'Generated: {timestamp} | Total Anomalies: {len(anomalies)} | Critical: {critical_count} | High Priority: {high_count}'
-        worksheet.merge_range('A2:L2', subtitle_text, subtitle_format)
+        worksheet.merge_range('A2:K2', subtitle_text, subtitle_format)
         
         # Add instructions
         instruction_format = workbook.add_format({
             'font_size': 9, 'italic': True, 'align': 'left'
         })
-        worksheet.merge_range('A3:L3', 'Instructions: Critical and High severity items require immediate attention. Review suggested reasons and take recommended actions.', instruction_format)
+        worksheet.merge_range('A3:K3', 'Instructions: Critical and High severity items require immediate attention. Review suggested reasons and take recommended actions.', instruction_format)
         
         # Apply conditional formatting
-        if len(df_summary) > 0:
+        if len(df_summary) > 0 and len(anomalies) > 0:
             self.formatter.apply_anomaly_formatting(worksheet, df_summary, start_row=4)
             
-            # Add data bars for variance percentages
-            if 'Variance Amount' in df_summary.columns:
-                variance_col = df_summary.columns.get_loc('Variance Amount')
-                self.formatter.add_data_bars(worksheet, 4, 4 + len(df_summary) - 1, variance_col)
+            # Add data bars for variance amounts
+            if 'Amount' in df_summary.columns:
+                amount_col = df_summary.columns.get_loc('Amount')
+                self.formatter.add_data_bars(worksheet, 4, 4 + len(df_summary) - 1, amount_col)
         
         # Adjust column widths
         self.formatter.adjust_column_widths(worksheet, df_summary)
@@ -168,52 +166,33 @@ class ExcelGenerator:
     
     def _generate_suggested_reason(self, anomaly: Anomaly) -> str:
         """Generate suggested reason based on anomaly characteristics."""
-        if anomaly.type.value == 'variance':
-            if 'depreciation' in anomaly.category.lower():
-                return 'Asset additions, disposals, or depreciation method changes'
-            elif 'revenue' in anomaly.category.lower():
-                return 'Occupancy changes, lease modifications, or billing timing differences'
-            elif 'cash' in anomaly.category.lower():
-                return 'Operational cash flow changes or collection timing'
-            elif 'borrowings' in anomaly.category.lower():
-                return 'New loans, repayments, or refinancing activities'
-            elif 'interest' in anomaly.category.lower():
-                return 'Interest rate changes or principal balance fluctuations'
-            else:
-                return 'Operational changes or accounting adjustments'
-        elif anomaly.type.value == 'correlation_violation':
-            return f'Correlation rule violation: {anomaly.rule_violated}'
-        elif anomaly.type.value == 'sign_change':
-            return 'Account sign change - verify data accuracy and business events'
-        elif anomaly.type.value == 'recurring_spike':
-            return 'Unusual variance in normally stable account - investigate underlying causes'
-        elif anomaly.type.value == 'quarterly_pattern':
-            return 'Deviation from expected quarterly pattern - check billing cycles and revenue recognition'
-        else:
-            return 'Review business operations and accounting treatments'
+        # Use the standardized reason from the anomaly object to ensure consistency
+        return anomaly.recommended_action
     
     def _create_variance_analysis_sheet(self, writer: pd.ExcelWriter, 
                                       variance_results: List[VarianceResult]) -> None:
         """Create detailed variance analysis sheet."""
         variance_data = []
         for result in variance_results:
-            variance_data.append({
-                'Account Code': result.account_code,
-                'Account Name': result.account_name,
-                'Category': result.category,
-                'Statement': result.statement_type,
-                'Current Period': result.period_to,
-                'Previous Period': result.period_from,
-                'Current Value': result.current_value,
-                'Previous Value': result.previous_value,
-                'Variance Amount': result.variance_amount,
-                'Variance %': result.variance_percent,
-                'Significant': 'YES' if result.is_significant else 'NO'
-            })
+            # Only include variances that would be flagged as anomalies
+            if result.is_significant:
+                variance_data.append({
+                    'Account Code': result.account_code,
+                    'Account Name': result.account_name,
+                    'Category': result.category,
+                    'Statement': result.statement_type,
+                    'Current Period': result.period_to,
+                    'Previous Period': result.period_from,
+                    'Current Value': result.current_value,
+                    'Previous Value': result.previous_value,
+                    'Variance Amount': result.variance_amount,
+                    'Variance %': result.variance_percent,
+                    'Significant': 'YES' if result.is_significant else 'NO'
+                })
         
         df_variance = pd.DataFrame(variance_data)
         
-        sheet_name = 'Variance Analysis'
+        sheet_name = 'Detailed Variance Analysis'
         df_variance.to_excel(writer, sheet_name=sheet_name, index=False, startrow=1)
         
         worksheet = writer.sheets[sheet_name]

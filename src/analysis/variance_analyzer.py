@@ -102,17 +102,41 @@ class VarianceAnalyzer:
             variance_percent = calculate_variance_percentage(current_value, previous_value)
             
             # Determine if variance is significant
-            threshold = self.settings.get_variance_threshold(category)
-            is_significant = abs(variance_percent) >= threshold
+            is_significant = False
             
             # Check for sign changes (always significant)
             if has_sign_change(current_value, previous_value):
                 is_significant = True
+            else:
+                # Get account-specific threshold
+                threshold = self.settings.get_variance_threshold(category)
                 
-            # Check materiality threshold for the specific account
-            materiality_threshold = self.settings.get_materiality_threshold(account_code)
-            if abs(variance_percent) >= materiality_threshold:
-                is_significant = True
+                # For G&A accounts (opex, staff_costs, other_expenses), apply 10% threshold
+                if category in ['opex', 'staff_costs', 'other_expenses']:
+                    threshold = 10.0
+                # For borrowings, apply strict 2% threshold
+                elif category == 'borrowings':
+                    threshold = 2.0
+                # For recurring accounts, apply their specific thresholds (like 5% for depreciation)
+                elif category == 'depreciation':
+                    threshold = 5.0
+                
+                # Standard significance check: percentage threshold OR materiality
+                meets_percentage_threshold = abs(variance_percent) >= threshold
+                
+                # Check materiality threshold for the specific account (only if actually configured for this account)
+                materiality_config = self.settings.account_mappings.get("materiality_thresholds", {})
+                account_has_specific_materiality = any(
+                    account_code in config.get("accounts", [])
+                    for config in materiality_config.values()
+                )
+                
+                if account_has_specific_materiality:
+                    materiality_threshold = self.settings.get_materiality_threshold(account_code)
+                    if abs(variance_percent) >= materiality_threshold:
+                        is_significant = True
+                elif meets_percentage_threshold:
+                    is_significant = True
             
             result = VarianceResult(
                 account_code=account_code,

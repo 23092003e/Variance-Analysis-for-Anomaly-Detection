@@ -68,9 +68,8 @@ class CorrelationEngine:
         rule_configs = self.settings.get_correlation_rules()
         
         for rule_config in rule_configs:
-            if not rule_config.get('enabled', True):
-                continue
-                
+            # Load all rules (enabled and disabled) but preserve their enabled status
+            
             # Map relationship type string to enum
             relationship_mapping = {
                 'positive': RelationshipType.POSITIVE,
@@ -96,7 +95,8 @@ class CorrelationEngine:
             
             rules.append(rule)
             
-        self.logger.info(f"Loaded {len(rules)} correlation rules from configuration")
+        enabled_count = sum(1 for r in rules if r.enabled)
+        self.logger.info(f"Loaded {len(rules)} correlation rules from configuration ({enabled_count} enabled)")
         return rules
     
     def analyze(self, financial_data: FinancialData) -> List[CorrelationResult]:
@@ -198,6 +198,10 @@ class CorrelationEngine:
     def _get_accounts_by_category(self, data: pd.DataFrame, category: str) -> List[str]:
         """Get account codes matching a category."""
         account_codes = self.account_mapper.get_accounts_by_category(category)
+        
+        # Handle empty data
+        if data.empty or 'account_code' not in data.columns:
+            return []
         
         # Filter to only accounts present in data
         present_accounts = []

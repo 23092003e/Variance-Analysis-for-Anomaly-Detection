@@ -49,6 +49,7 @@ class Anomaly:
     rule_violated: Optional[str]
     recommended_action: str
     period: str
+    logic_trigger: Optional[str] = None  # Explanation of why anomaly was flagged
 
 
 class AnomalyDetector:
@@ -112,41 +113,36 @@ class AnomalyDetector:
             if not result.is_significant:
                 continue
             
-            # Determine severity based on configured thresholds
+            # Determine severity based on BOTH percentage AND absolute amount thresholds (AND logic)
             severity_thresholds = self.settings.get_severity_thresholds()
+            abs_amount = abs(result.variance_amount)
+            abs_percent = abs(result.variance_percent)
             
-            if abs(result.variance_percent) >= severity_thresholds['critical']['variance_threshold']:
+            # Critical: variance ≥ 20% AND absolute amount ≥ 1,000,000
+            if (abs_percent >= severity_thresholds['critical']['variance_threshold'] and 
+                abs_amount >= severity_thresholds['critical']['absolute_threshold']):
                 severity = AnomalySeverity.CRITICAL
-            elif abs(result.variance_percent) >= severity_thresholds['high']['variance_threshold']:
+            # High: variance ≥ 10% AND absolute amount ≥ 500,000    
+            elif (abs_percent >= severity_thresholds['high']['variance_threshold'] and 
+                  abs_amount >= severity_thresholds['high']['absolute_threshold']):
                 severity = AnomalySeverity.HIGH
-            elif abs(result.variance_percent) >= severity_thresholds['medium']['variance_threshold']:
+            # Medium: variance ≥ 5% AND absolute amount ≥ 100,000
+            elif (abs_percent >= severity_thresholds['medium']['variance_threshold'] and 
+                  abs_amount >= severity_thresholds['medium']['absolute_threshold']):
                 severity = AnomalySeverity.MEDIUM
             else:
                 severity = AnomalySeverity.LOW
-                
-            # Also check absolute amount thresholds
-            abs_amount = abs(result.variance_amount)
-            severity_order = {AnomalySeverity.LOW: 1, AnomalySeverity.MEDIUM: 2, AnomalySeverity.HIGH: 3, AnomalySeverity.CRITICAL: 4}
-            
-            amount_severity = severity
-            if abs_amount >= severity_thresholds['critical']['absolute_threshold']:
-                amount_severity = AnomalySeverity.CRITICAL
-            elif abs_amount >= severity_thresholds['high']['absolute_threshold']:
-                amount_severity = AnomalySeverity.HIGH
-            elif abs_amount >= severity_thresholds['medium']['absolute_threshold']:
-                amount_severity = AnomalySeverity.MEDIUM
-                
-            # Use the higher severity
-            if severity_order[amount_severity] > severity_order[severity]:
-                severity = amount_severity
             
             # Generate description
             direction = "increased" if result.variance_amount > 0 else "decreased"
-            description = (f"Account {direction} by {abs(result.variance_percent):.1f}% "
+            description = (f"Account {direction} by {abs_percent:.1f}% "
                          f"({result.variance_amount:,.0f})")
             
-            # Recommend action based on account type and severity
-            action = self._recommend_action_for_variance(result, severity)
+            # Determine suggested reason based on anomaly characteristics
+            suggested_reason = self._get_suggested_reason(result)
+            
+            # Generate logic trigger explanation
+            logic_trigger = self._get_logic_trigger(result, severity, abs_percent, abs_amount, severity_thresholds)
             
             anomaly = Anomaly(
                 id=f"VAR_{result.account_code}_{result.period_to}",
@@ -160,8 +156,9 @@ class AnomalyDetector:
                 previous_value=result.previous_value,
                 variance_percent=result.variance_percent,
                 rule_violated=None,
-                recommended_action=action,
-                period=result.period_to
+                recommended_action=suggested_reason,
+                period=result.period_to,
+                logic_trigger=logic_trigger  # Add logic trigger
             )
             
             anomalies.append(anomaly)
@@ -201,8 +198,9 @@ class AnomalyDetector:
                 previous_value=None,
                 variance_percent=result.primary_variance,
                 rule_violated=result.rule_name,
-                recommended_action=self._recommend_action_for_correlation(result),
-                period="Current"
+                recommended_action="Operational changes or accounting adjustments",
+                period="Current",
+                logic_trigger=f"Correlation rule violation: {result.rule_name}"
             )
             
             anomalies.append(anomaly)
@@ -242,8 +240,9 @@ class AnomalyDetector:
                 previous_value=result.previous_value,
                 variance_percent=result.variance_percent,
                 rule_violated=None,
-                recommended_action="Investigate the cause of sign change - possible data error or significant business event",
-                period=result.period_to
+                recommended_action="Account sign change - verify data accuracy and business events",
+                period=result.period_to,
+                logic_trigger="Sign change detected"
             )
             
             anomalies.append(anomaly)
@@ -266,12 +265,23 @@ class AnomalyDetector:
                 
                 # Use configured thresholds for severity
                 severity_thresholds = self.settings.get_severity_thresholds()
-                if abs(result.variance_percent) >= severity_thresholds['high']['variance_threshold']:
-                    severity = AnomalySeverity.HIGH
-                else:
-                    severity = AnomalySeverity.MEDIUM
+                abs_amount = abs(result.variance_amount)
+                abs_percent = abs(result.variance_percent)
                 
-                description = (f"Recurring account showed {abs(result.variance_percent):.1f}% variance "
+                # Apply AND logic for severity classification
+                if (abs_percent >= severity_thresholds['critical']['variance_threshold'] and 
+                    abs_amount >= severity_thresholds['critical']['absolute_threshold']):
+                    severity = AnomalySeverity.CRITICAL
+                elif (abs_percent >= severity_thresholds['high']['variance_threshold'] and 
+                      abs_amount >= severity_thresholds['high']['absolute_threshold']):
+                    severity = AnomalySeverity.HIGH
+                elif (abs_percent >= severity_thresholds['medium']['variance_threshold'] and 
+                      abs_amount >= severity_thresholds['medium']['absolute_threshold']):
+                    severity = AnomalySeverity.MEDIUM
+                else:
+                    severity = AnomalySeverity.LOW
+                
+                description = (f"Recurring account showed {abs_percent:.1f}% variance "
                              f"(expected to be stable)")
                 
                 anomaly = Anomaly(
@@ -286,8 +296,9 @@ class AnomalyDetector:
                     previous_value=result.previous_value,
                     variance_percent=result.variance_percent,
                     rule_violated=None,
-                    recommended_action=self._recommend_action_for_recurring(result),
-                    period=result.period_to
+                    recommended_action="Operational changes or accounting adjustments",
+                    period=result.period_to,
+                    logic_trigger=f"Recurring account exceeds {recurring_threshold}% stability threshold ({abs_percent:.1f}%)"
                 )
                 
                 anomalies.append(anomaly)
@@ -312,20 +323,38 @@ class AnomalyDetector:
             
             if abs(result.variance_percent) > pattern_threshold:
                 
+                # Apply consistent severity classification
+                severity_thresholds = self.settings.get_severity_thresholds()
+                abs_amount = abs(result.variance_amount)
+                abs_percent = abs(result.variance_percent)
+                
+                if (abs_percent >= severity_thresholds['critical']['variance_threshold'] and 
+                    abs_amount >= severity_thresholds['critical']['absolute_threshold']):
+                    severity = AnomalySeverity.CRITICAL
+                elif (abs_percent >= severity_thresholds['high']['variance_threshold'] and 
+                      abs_amount >= severity_thresholds['high']['absolute_threshold']):
+                    severity = AnomalySeverity.HIGH
+                elif (abs_percent >= severity_thresholds['medium']['variance_threshold'] and 
+                      abs_amount >= severity_thresholds['medium']['absolute_threshold']):
+                    severity = AnomalySeverity.MEDIUM
+                else:
+                    severity = AnomalySeverity.LOW
+                
                 anomaly = Anomaly(
                     id=f"QUART_{result.account_code}_{result.period_to}",
                     type=AnomalyType.QUARTERLY_PATTERN_BREAK,
-                    severity=AnomalySeverity.MEDIUM,
+                    severity=severity,
                     account_code=result.account_code,
                     account_name=result.account_name,
                     category=result.category,
-                    description=f"Quarterly account showed unusual variance of {result.variance_percent:.1f}%",
+                    description=f"Quarterly account showed unusual variance of {abs_percent:.1f}%",
                     current_value=result.current_value,
                     previous_value=result.previous_value,
                     variance_percent=result.variance_percent,
                     rule_violated=None,
-                    recommended_action="Verify quarterly billing timing and collection patterns",
-                    period=result.period_to
+                    recommended_action="Deviation from expected quarterly pattern - check billing cycles",
+                    period=result.period_to,
+                    logic_trigger=f"Cyclical account exceeds quarterly pattern threshold ({abs_percent:.1f}% > {pattern_threshold}%)"
                 )
                 
                 anomalies.append(anomaly)
@@ -357,6 +386,56 @@ class AnomalyDetector:
             return "Review operating expense categories for unusual items or timing differences"
         else:
             return "Investigate the cause of variance in this normally stable account"
+
+    
+    def _get_suggested_reason(self, result: VarianceResult) -> str:
+        """Get suggested reason based on anomaly characteristics."""
+        from src.utils.calculations import has_sign_change
+        
+        # Check for sign change first
+        if has_sign_change(result.current_value, result.previous_value):
+            return "Account sign change - verify data accuracy and business events"
+        
+        # Check if it's a cyclical account
+        cyclical_accounts = self.settings.get_cyclical_account_codes()
+        if result.account_code in cyclical_accounts:
+            return "Deviation from expected quarterly pattern - check billing cycles"
+        
+        # General variance reason
+        return "Operational changes or accounting adjustments"
+    
+    def _get_logic_trigger(self, result: VarianceResult, severity: AnomalySeverity, 
+                          abs_percent: float, abs_amount: float, severity_thresholds: dict) -> str:
+        """Generate logic trigger explanation for why anomaly was flagged."""
+        from src.utils.calculations import has_sign_change
+        
+        # Check for sign change
+        if has_sign_change(result.current_value, result.previous_value):
+            return "Sign change detected"
+        
+        # Check specific account thresholds
+        account_threshold = self.settings.get_variance_threshold(result.category)
+        if abs_percent >= account_threshold:
+            trigger_parts = []
+            
+            # Add threshold trigger
+            if result.category in ['opex', 'staff_costs', 'other_expenses']:  # G&A accounts
+                trigger_parts.append(f"G&A account exceeds 10% threshold ({abs_percent:.1f}%)")
+            elif result.category == 'borrowings':
+                trigger_parts.append(f"Borrowings exceeds 2% threshold ({abs_percent:.1f}%)")
+            elif result.category in ['depreciation']:
+                trigger_parts.append(f"Recurring account exceeds 5% threshold ({abs_percent:.1f}%)")
+            else:
+                trigger_parts.append(f"Exceeds {account_threshold}% threshold ({abs_percent:.1f}%)")
+            
+            # Add severity classification
+            if severity != AnomalySeverity.LOW:
+                sev_config = severity_thresholds[severity.value.lower()]
+                trigger_parts.append(f"Meets {severity.value.lower()} criteria: ≥{sev_config['variance_threshold']}% and ≥{sev_config['absolute_threshold']:,}")
+            
+            return " + ".join(trigger_parts)
+        
+        return f"Variance threshold exceeded ({abs_percent:.1f}%)"
     
     def _prioritize_anomalies(self, anomalies: List[Anomaly]) -> List[Anomaly]:
         """Sort anomalies by priority (severity and magnitude)."""
