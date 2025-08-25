@@ -21,7 +21,11 @@
       "mcp__serena__search_for_pattern",
       "mcp__serena__insert_after_symbol",
       "Bash(grep:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(set PYTHONPATH=%cd%src)",
+      "Bash(dir:*)",
+      "mcp__ide__executeCode",
+      "Bash(del test_fixes.py)"
     ],
     "deny": [],
     "ask": []
