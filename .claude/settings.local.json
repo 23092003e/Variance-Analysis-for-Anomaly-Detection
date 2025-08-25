@@ -25,7 +25,10 @@
       "Bash(set PYTHONPATH=%cd%src)",
       "Bash(dir:*)",
       "mcp__ide__executeCode",
-      "Bash(del test_fixes.py)"
+      "Bash(del test_fixes.py)",
+      "Bash(del check_excel.py)",
+      "Bash(del debug_scc.py debug_scc_data.py debug_scc_headers.py check_sheets.py)",
+      "Bash(del debug_scc*.py)"
     ],
     "deny": [],
     "ask": []

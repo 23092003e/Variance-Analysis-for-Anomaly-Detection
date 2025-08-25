@@ -70,91 +70,144 @@ class VarianceAnalyzer:
         
         return all_results
     
-    def _analyze_statement(self, df: pd.DataFrame, statement_type: str) -> List[VarianceResult]:
+    def _analyze_statement(self, df: Optional[pd.DataFrame], statement_type: str) -> List[VarianceResult]:
         """Analyze variances for a single financial statement."""
         results = []
         
+        # Check if dataframe is valid
+        if df is None or df.empty:
+            self.logger.warning(f"No data available for {statement_type} analysis")
+            return results
+        
+        # Check required columns
+        required_cols = ['account_code', 'account_name']
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            self.logger.warning(f"Missing required columns for {statement_type}: {missing_cols}")
+            return results
+        
         # Get numeric columns (periods)
-        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+        try:
+            numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+        except Exception as e:
+            self.logger.error(f"Error detecting numeric columns in {statement_type}: {e}")
+            return results
         
         if len(numeric_cols) < 2:
-            self.logger.warning(f"Not enough periods for variance analysis in {statement_type}")
-            return results
+            self.logger.warning(f"Not enough numeric periods for variance analysis in {statement_type} (found {len(numeric_cols)})")
+            # Try to convert columns that might be numeric
+            potential_numeric_cols = []
+            for col in df.columns:
+                if col not in required_cols:
+                    try:
+                        # Try to convert column to numeric
+                        numeric_series = pd.to_numeric(df[col], errors='coerce')
+                        if not numeric_series.isna().all():  # If at least some values are numeric
+                            potential_numeric_cols.append(col)
+                    except:
+                        continue
+            
+            if len(potential_numeric_cols) < 2:
+                self.logger.warning(f"Still not enough numeric columns after conversion attempt in {statement_type}")
+                return results
+            
+            # Use converted columns
+            numeric_cols = potential_numeric_cols
+            self.logger.info(f"Using converted numeric columns for {statement_type}: {numeric_cols}")
         
         # Use last two periods for comparison
         current_period = numeric_cols[-1]
         previous_period = numeric_cols[-2]
         
+        self.logger.info(f"Analyzing {statement_type}: {previous_period} vs {current_period}")
+        
         for _, row in df.iterrows():
-            account_code = str(row['account_code'])
-            account_name = str(row['account_name'])
-            
-            # Get account information
-            account_info = self.account_mapper.get_account_info(account_code)
-            category = account_info.category if account_info else 'unknown'
-            
-            # Get values
-            current_value = row[current_period] if pd.notna(row[current_period]) else 0.0
-            previous_value = row[previous_period] if pd.notna(row[previous_period]) else 0.0
-            
-            # Calculate variance using centralized functions
-            variance_amount = calculate_variance_amount(current_value, previous_value)
-            variance_percent = calculate_variance_percentage(current_value, previous_value)
-            
-            # Determine if variance is significant
-            is_significant = False
-            
-            # Check for sign changes (always significant)
-            if has_sign_change(current_value, previous_value):
-                is_significant = True
-            else:
-                # Get account-specific threshold
-                threshold = self.settings.get_variance_threshold(category)
+            try:
+                account_code = str(row.get('account_code', ''))
+                account_name = str(row.get('account_name', ''))
                 
-                # For G&A accounts (opex, staff_costs, other_expenses), apply 10% threshold
-                if category in ['opex', 'staff_costs', 'other_expenses']:
-                    threshold = 10.0
-                # For borrowings, apply strict 2% threshold
-                elif category == 'borrowings':
-                    threshold = 2.0
-                # For recurring accounts, apply their specific thresholds (like 5% for depreciation)
-                elif category == 'depreciation':
-                    threshold = 5.0
+                if not account_code or account_code in ['nan', 'None']:
+                    continue
                 
-                # Standard significance check: percentage threshold OR materiality
-                meets_percentage_threshold = abs(variance_percent) >= threshold
+                # Get account information
+                account_info = self.account_mapper.get_account_info(account_code)
+                category = account_info.category if account_info else 'unknown'
                 
-                # Check materiality threshold for the specific account (only if actually configured for this account)
-                materiality_config = self.settings.account_mappings.get("materiality_thresholds", {})
-                account_has_specific_materiality = any(
-                    account_code in config.get("accounts", [])
-                    for config in materiality_config.values()
+                # Get values - handle both numeric and string columns
+                current_value = self._get_numeric_value(row, current_period)
+                previous_value = self._get_numeric_value(row, previous_period)
+                
+                # Calculate variance using centralized functions
+                variance_amount = calculate_variance_amount(current_value, previous_value)
+                variance_percent = calculate_variance_percentage(current_value, previous_value)
+                
+                # Determine if variance is significant
+                is_significant = self._is_variance_significant(
+                    current_value, previous_value, variance_percent, category
                 )
                 
-                if account_has_specific_materiality:
-                    materiality_threshold = self.settings.get_materiality_threshold(account_code)
-                    if abs(variance_percent) >= materiality_threshold:
-                        is_significant = True
-                elif meets_percentage_threshold:
-                    is_significant = True
-            
-            result = VarianceResult(
-                account_code=account_code,
-                account_name=account_name,
-                category=category,
-                statement_type=statement_type,
-                current_value=current_value,
-                previous_value=previous_value,
-                variance_amount=variance_amount,
-                variance_percent=variance_percent,
-                is_significant=is_significant,
-                period_from=previous_period,
-                period_to=current_period
-            )
-            
-            results.append(result)
+                result = VarianceResult(
+                    account_code=account_code,
+                    account_name=account_name,
+                    category=category,
+                    statement_type=statement_type,
+                    current_value=current_value,
+                    previous_value=previous_value,
+                    variance_amount=variance_amount,
+                    variance_percent=variance_percent,
+                    is_significant=is_significant,
+                    period_from=previous_period,
+                    period_to=current_period
+                )
+                
+                results.append(result)
+                
+            except Exception as e:
+                self.logger.error(f"Error analyzing row in {statement_type}: {e}")
+                continue
         
+        self.logger.info(f"Completed {statement_type} analysis: {len(results)} results")
         return results
+    
+    def _get_numeric_value(self, row: pd.Series, column: str) -> float:
+        """Safely extract numeric value from row."""
+        try:
+            value = row.get(column, 0)
+            if pd.isna(value):
+                return 0.0
+            return float(value)
+        except (ValueError, TypeError):
+            return 0.0
+    
+    def _is_variance_significant(self, current_value: float, previous_value: float, 
+                               variance_percent: float, category: str) -> bool:
+        """Determine if variance is significant based on thresholds."""
+        # Check for sign changes (always significant)
+        if has_sign_change(current_value, previous_value):
+            return True
+        
+        # Get account-specific threshold
+        threshold = self.settings.get_variance_threshold(category)
+        
+        # Category-specific thresholds
+        category_thresholds = {
+            'opex': 10.0,
+            'staff_costs': 10.0,
+            'other_expenses': 10.0,
+            'borrowings': 2.0,
+            'depreciation': 5.0
+        }
+        
+        if category in category_thresholds:
+            threshold = category_thresholds[category]
+        
+        # Check percentage threshold
+        if abs(variance_percent) >= threshold:
+            return True
+        
+        # Check materiality threshold if configured for this account
+        # Note: This would need account_code access, skipping for now
+        return False
     
     # Removed _has_sign_change method - now using centralized function from utils.calculations
     

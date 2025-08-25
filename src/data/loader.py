@@ -37,6 +37,15 @@ class DataLoader:
             # Read all sheets
             excel_data = pd.read_excel(file_path, sheet_name=None, engine='openpyxl')
             
+            # Log all available sheets
+            available_sheets = list(excel_data.keys())
+            self.logger.info(f"Found {len(available_sheets)} sheets: {available_sheets}")
+            
+            # Log sheet sizes
+            for sheet_name, sheet_data in excel_data.items():
+                rows, cols = sheet_data.shape
+                self.logger.debug(f"Sheet '{sheet_name}': {rows} rows x {cols} columns")
+            
             # Extract balance sheet and income statement
             balance_sheet = self._extract_balance_sheet(excel_data)
             income_statement = self._extract_income_statement(excel_data)
@@ -45,10 +54,11 @@ class DataLoader:
             periods = self._extract_periods(balance_sheet, income_statement)
             subsidiaries = self._extract_subsidiaries(balance_sheet, income_statement)
             
-            # Create metadata
+            # Create metadata with consistent source_file field
             metadata = {
                 'file_path': file_path,
-                'sheets': list(excel_data.keys()),
+                'source_file': file_path,  # Consistent field for Excel generator
+                'sheets': available_sheets,
                 'load_timestamp': pd.Timestamp.now()
             }
             
@@ -60,8 +70,13 @@ class DataLoader:
                 metadata=metadata
             )
             
-            self.logger.info(f"Successfully loaded data: {len(periods)} periods, "
-                           f"{len(subsidiaries)} subsidiaries")
+            # Log final summary
+            bs_rows = len(balance_sheet) if not balance_sheet.empty else 0
+            pl_rows = len(income_statement) if not income_statement.empty else 0
+            self.logger.info(f"Successfully loaded data: {bs_rows} BS records, {pl_rows} PL records, "
+                           f"{len(periods)} periods, {len(subsidiaries)} subsidiaries")
+            self.logger.info(f"Periods found: {periods}")
+            self.logger.info(f"Subsidiaries found: {subsidiaries}")
             
             return financial_data
             
@@ -70,36 +85,85 @@ class DataLoader:
             raise
     
     def _extract_balance_sheet(self, excel_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
-        """Extract balance sheet data from Excel sheets."""
-        bs_sheets = [name for name in excel_data.keys() 
-                    if any(keyword in name.lower() for keyword in ['balance', 'bs', 'bảng cân đối'])]
+        """Extract balance sheet data from BS breakdown and BS sheets."""
+        self.logger.info("Extracting balance sheet data from BS breakdown and BS sheets")
         
-        if not bs_sheets:
-            # Try to find data in the first sheet
-            first_sheet = list(excel_data.values())[0]
-            if self._looks_like_balance_sheet(first_sheet):
-                return self._standardize_dataframe(first_sheet, 'BS')
-            raise ValueError("No balance sheet data found")
+        balance_sheet_data = []
+        total_rows = 0
         
-        # Use the first balance sheet found
-        bs_data = excel_data[bs_sheets[0]]
-        return self._standardize_dataframe(bs_data, 'BS')
+        # Find BS breakdown sheet (try different variations)
+        bs_breakdown_sheet = None
+        for sheet_name in excel_data.keys():
+            sheet_lower = sheet_name.lower().replace(' ', '').replace('_', '')
+            if sheet_lower in ['bsbreakdown', 'balancesheetbreakdown']:
+                bs_breakdown_sheet = sheet_name
+                break
+        
+        if bs_breakdown_sheet:
+            bs_breakdown = self._standardize_dataframe(excel_data[bs_breakdown_sheet], 'balance_sheet')
+            balance_sheet_data.append(bs_breakdown)
+            rows_count = len(bs_breakdown)
+            total_rows += rows_count
+            self.logger.info(f"Found BS breakdown sheet '{bs_breakdown_sheet}' with {rows_count} rows (after standardization)")
+        else:
+            self.logger.warning("BS breakdown sheet not found (tried variations: 'BS breakdown', 'BSbreakdown', 'BS Breakdown')")
+        
+        # Find BS sheet
+        bs_sheet = None
+        for sheet_name in excel_data.keys():
+            if sheet_name.upper() == 'BS':
+                bs_sheet = sheet_name
+                break
+        
+        if bs_sheet:
+            bs_data = self._standardize_dataframe(excel_data[bs_sheet], 'balance_sheet')
+            balance_sheet_data.append(bs_data)
+            rows_count = len(bs_data)
+            total_rows += rows_count
+            self.logger.info(f"Found BS sheet '{bs_sheet}' with {rows_count} rows (after standardization)")
+        else:
+            self.logger.warning("BS sheet not found")
+        
+        if not balance_sheet_data:
+            available_sheets = list(excel_data.keys())
+            self.logger.error(f"No balance sheet data found. Available sheets: {available_sheets}")
+            raise ValueError("No balance sheet data found. Expected 'BS breakdown', 'BSbreakdown', 'BS Breakdown', or 'BS' sheets.")
+        
+        # Combine all balance sheet data
+        combined_bs = pd.concat(balance_sheet_data, ignore_index=True)
+        final_rows = len(combined_bs)
+        self.logger.info(f"Combined balance sheet data: {total_rows} total rows -> {final_rows} final rows")
+        
+        return combined_bs
     
     def _extract_income_statement(self, excel_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
-        """Extract income statement data from Excel sheets."""
-        is_sheets = [name for name in excel_data.keys() 
-                    if any(keyword in name.lower() for keyword in ['income', 'is', 'p&l', 'pl', 'kết quả'])]
+        """Extract income statement data from PL breakdown sheet."""
+        self.logger.info("Extracting income statement data from PL breakdown sheet")
         
-        if not is_sheets:
-            # Try to find IS data in combined sheet
-            for sheet_name, sheet_data in excel_data.items():
-                if self._looks_like_income_statement(sheet_data):
-                    return self._standardize_dataframe(sheet_data, 'IS')
-            raise ValueError("No income statement data found")
+        # Find PL breakdown sheet (try different variations)
+        pl_breakdown_sheet = None
+        for sheet_name in excel_data.keys():
+            sheet_lower = sheet_name.lower().replace(' ', '').replace('_', '')
+            if sheet_lower in ['plbreakdown', 'profitlossbreakdown']:
+                pl_breakdown_sheet = sheet_name
+                break
         
-        # Use the first income statement found
-        is_data = excel_data[is_sheets[0]]
-        return self._standardize_dataframe(is_data, 'IS')
+        if not pl_breakdown_sheet:
+            available_sheets = list(excel_data.keys())
+            self.logger.error(f"PL breakdown sheet not found. Available sheets: {available_sheets}")
+            self.logger.error("Tried variations: 'PL breakdown', 'PLbreakdown', 'PL Breakdown', 'Profit Loss Breakdown'")
+            raise ValueError("No income statement data found. Expected 'PL breakdown', 'PLbreakdown', or 'PL Breakdown' sheet.")
+        
+        pl_breakdown = self._standardize_dataframe(excel_data[pl_breakdown_sheet], 'income_statement')
+        rows_count = len(pl_breakdown)
+        self.logger.info(f"Found PL breakdown sheet '{pl_breakdown_sheet}' with {rows_count} rows (after standardization)")
+        
+        # Log sample of account codes from PL breakdown
+        if not pl_breakdown.empty and 'account_code' in pl_breakdown.columns:
+            sample_codes = pl_breakdown['account_code'].head(5).tolist()
+            self.logger.debug(f"Sample account codes from PL breakdown: {sample_codes}")
+        
+        return pl_breakdown
     
     def _standardize_dataframe(self, df: pd.DataFrame, statement_type: str) -> pd.DataFrame:
         """Standardize dataframe format."""
@@ -135,18 +199,69 @@ class DataLoader:
         return df
     
     def _find_account_column(self, df: pd.DataFrame) -> Optional[str]:
-        """Find the account code column."""
-        possible_names = ['account', 'code', 'account_code', 'mã tài khoản', 'tài khoản']
+        """Find the account code column with enhanced detection."""
+        # Extended list of possible column names
+        possible_names = [
+            'account', 'code', 'account_code', 'accountcode', 'account_number', 'accountnumber',
+            'mã tài khoản', 'ma tai khoan', 'tài khoản', 'tai khoan', 'mã', 'ma',
+            'account_id', 'id', 'acc_code', 'acccode', 'acc', 'a/c'
+        ]
         
+        # First, check for exact or partial matches
         for col in df.columns:
-            if any(name in str(col).lower() for name in possible_names):
-                return col
-        
-        # Check first column if it looks like account codes
-        first_col = df.columns[0]
-        if df[first_col].astype(str).str.match(r'^\d+').sum() > len(df) * 0.5:
-            return first_col
+            col_lower = str(col).lower().strip()
             
+            # Check exact matches first
+            if col_lower in possible_names:
+                self.logger.info(f"Found account column by exact match: {col}")
+                return col
+                
+            # Check partial matches
+            for name in possible_names:
+                if name in col_lower:
+                    self.logger.info(f"Found account column by partial match: {col} (contains '{name}')")
+                    return col
+        
+        # Second, check column content patterns
+        for col in df.columns:
+            try:
+                # Convert to string and check for numeric patterns
+                col_values = df[col].dropna().astype(str)
+                
+                if len(col_values) == 0:
+                    continue
+                
+                # Check for account-like patterns
+                numeric_pattern_count = col_values.str.match(r'^\d{4,9}$').sum()
+                mixed_pattern_count = col_values.str.match(r'^[A-Z]{1,4}\d+$').sum()
+                
+                # If majority of values look like account codes
+                if numeric_pattern_count > len(col_values) * 0.6:
+                    self.logger.info(f"Found account column by numeric pattern: {col} ({numeric_pattern_count}/{len(col_values)} matches)")
+                    return col
+                elif mixed_pattern_count > len(col_values) * 0.6:
+                    self.logger.info(f"Found account column by mixed pattern: {col} ({mixed_pattern_count}/{len(col_values)} matches)")
+                    return col
+                    
+            except Exception as e:
+                self.logger.debug(f"Error checking column {col} for patterns: {e}")
+                continue
+        
+        # Third, check positional heuristics (first column)
+        if len(df.columns) > 0:
+            first_col = df.columns[0]
+            try:
+                first_col_values = df[first_col].dropna().astype(str)
+                if len(first_col_values) > 0:
+                    # Check if first column looks like codes
+                    code_like_count = first_col_values.str.match(r'^\d+').sum()
+                    if code_like_count > len(first_col_values) * 0.5:
+                        self.logger.info(f"Using first column as account column: {first_col}")
+                        return first_col
+            except:
+                pass
+        
+        self.logger.warning("Could not identify account code column")
         return None
     
     def _find_name_column(self, df: pd.DataFrame) -> Optional[str]:
@@ -159,17 +274,15 @@ class DataLoader:
                 
         return None
     
-    def _looks_like_balance_sheet(self, df: pd.DataFrame) -> bool:
-        """Check if dataframe looks like balance sheet."""
-        text_content = ' '.join(df.astype(str).values.flatten()).lower()
-        bs_keywords = ['assets', 'liabilities', 'equity', 'tài sản', 'nợ phải trả', 'vốn chủ sở hữu']
-        return sum(keyword in text_content for keyword in bs_keywords) >= 2
+    def _looks_like_balance_sheet(self, sheet_name: str) -> bool:
+        """Check if sheet name indicates balance sheet data."""
+        sheet_lower = sheet_name.lower().replace(' ', '').replace('_', '')
+        return sheet_lower in ['bs', 'bsbreakdown', 'balancesheet', 'balancesheetbreakdown', 'bs breakdown']
     
-    def _looks_like_income_statement(self, df: pd.DataFrame) -> bool:
-        """Check if dataframe looks like income statement."""
-        text_content = ' '.join(df.astype(str).values.flatten()).lower()
-        is_keywords = ['revenue', 'expense', 'income', 'doanh thu', 'chi phí', 'lợi nhuận']
-        return sum(keyword in text_content for keyword in is_keywords) >= 2
+    def _looks_like_income_statement(self, sheet_name: str) -> bool:
+        """Check if sheet name indicates income statement data."""
+        sheet_lower = sheet_name.lower().replace(' ', '').replace('_', '')
+        return sheet_lower in ['plbreakdown', 'profitandloss', 'incomestatement', 'profitlossbreakdown', 'pl breakdown']
     
     def _extract_periods(self, bs_df: pd.DataFrame, is_df: pd.DataFrame) -> List[str]:
         """Extract time periods from data."""

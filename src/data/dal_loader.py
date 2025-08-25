@@ -47,9 +47,10 @@ class DALDataLoader:
             periods = self._extract_dal_periods(balance_sheet, income_statement)
             subsidiaries = ['BW Industrial Development JSC']  # From the file header
             
-            # Create metadata
+            # Create metadata with consistent source_file field
             metadata = {
                 'file_path': file_path,
+                'source_file': file_path,  # Consistent field for Excel generator
                 'sheets': list(excel_data.keys()),
                 'load_timestamp': pd.Timestamp.now(),
                 'file_format': 'DAL'

@@ -31,10 +31,10 @@ class ExcelGenerator:
                        output_file: str) -> None:
         """
         Add Anomalies Summary sheet to existing Excel file.
-        If the output file doesn't exist, look for the input file and use that instead.
+        Uses the source file from financial_data metadata for independent processing.
         
         Args:
-            financial_data: Original financial data
+            financial_data: Original financial data with metadata
             variance_results: Variance analysis results  
             correlation_results: Correlation analysis results
             anomalies: Detected anomalies
@@ -44,22 +44,30 @@ class ExcelGenerator:
         from pathlib import Path
         from openpyxl import load_workbook, Workbook
         
-        # If output file doesn't exist, try to use the default input file
+        # Get the original source file from metadata (for independent processing)
+        source_file = None
+        if financial_data.metadata and 'source_file' in financial_data.metadata:
+            source_file = financial_data.metadata['source_file']
+            self.logger.info(f"Using source file from metadata: {source_file}")
+        
+        # Determine which file to use as template
         actual_file = output_file
         if not os.path.exists(output_file):
-            input_file = self.settings.default_input_file
-            if os.path.exists(input_file):
-                actual_file = input_file
-                self.logger.info(f"Output file {output_file} doesn't exist. Using input file: {input_file}")
+            if source_file and os.path.exists(source_file):
+                actual_file = source_file
+                self.logger.info(f"Output file {output_file} doesn't exist. Using source file: {source_file}")
             else:
-                self.logger.warning(f"Neither output file {output_file} nor input file {input_file} exists. Creating new file.")
-                self._create_fallback_file(financial_data, variance_results, correlation_results, anomalies, output_file)
-                return
+                # Only fallback to default as last resort
+                fallback_file = self.settings.default_input_file
+                if os.path.exists(fallback_file):
+                    actual_file = fallback_file
+                    self.logger.warning(f"Using fallback file: {fallback_file}")
+                else:
+                    self.logger.warning(f"No template file available. Creating new file: {output_file}")
+                    self._create_fallback_file(financial_data, variance_results, correlation_results, anomalies, output_file)
+                    return
         
-        self.logger.info(f"Adding Anomalies Summary sheet to existing file: {actual_file}")
-        
-        # Load GL sheet to extract subsidiary information
-        gl_data = self._load_gl_sheet(actual_file)
+        self.logger.info(f"Adding Anomalies Summary sheet to file: {actual_file}")
         
         try:
             workbook = load_workbook(actual_file)
@@ -72,74 +80,53 @@ class ExcelGenerator:
             # Create new sheet
             anomaly_sheet = workbook.create_sheet('Anomalies Summary')
             
-            # Prepare and write data
-            summary_data = self._prepare_anomaly_data(anomalies, gl_data)
+            # Prepare and write data using current financial_data
+            summary_data = self._prepare_anomaly_data(anomalies, financial_data)
             self._write_anomaly_data(anomaly_sheet, summary_data)
             self._apply_anomaly_formatting(anomaly_sheet, summary_data, anomalies)
             
-            # Save to the original file location (preserving all other sheets)
-            save_path = actual_file if actual_file != self.settings.default_input_file else output_file
-            workbook.save(save_path)
+            # Always save to the specified output file (not the template file)
+            workbook.save(output_file)
             workbook.close()
             
-            self.logger.info(f"Anomalies Summary sheet added successfully to: {save_path}")
+            self.logger.info(f"Anomalies Summary sheet added successfully to: {output_file}")
             
         except Exception as e:
-            self.logger.error(f"Error modifying existing file {actual_file}: {str(e)}")
+            self.logger.error(f"Error modifying file {actual_file}: {str(e)}")
             # Fallback to creating new file
             self._create_fallback_file(financial_data, variance_results, correlation_results, anomalies, output_file)
     
-    def _load_gl_sheet(self, file_path: str) -> pd.DataFrame:
-        """Load GL sheet to extract subsidiary information with proper header detection."""
-        try:
-            # Try different header positions since Excel files can have complex layouts
-            for header_row in [0, 1, 2, 3]:
-                try:
-                    gl_data = pd.read_excel(file_path, sheet_name='GL', header=header_row)
-                    
-                    # Check if this looks like a valid header row
-                    column_names = [str(col).lower() for col in gl_data.columns]
-                    
-                    # Look for key indicators of a proper header row
-                    if any(keyword in ' '.join(column_names) for keyword in ['account', 'code', 'subsidiary', 'entity']):
-                        self.logger.info(f"Found GL sheet headers at row {header_row}")
-                        return gl_data
-                        
-                except Exception as e:
-                    continue
-            
-            # If no good header found, try reading without headers and look for header row manually
-            self.logger.warning("Could not find proper headers, reading GL sheet raw data")
-            raw_data = pd.read_excel(file_path, sheet_name='GL', header=None, nrows=20)
-            
-            # Look for a row that contains account/subsidiary keywords
-            for idx, row in raw_data.iterrows():
-                row_str = ' '.join([str(val).lower() for val in row.dropna() if pd.notna(val)])
-                if any(keyword in row_str for keyword in ['account', 'code', 'subsidiary', 'entity', 'company']):
-                    # Found potential header row, re-read with this as header
-                    gl_data = pd.read_excel(file_path, sheet_name='GL', header=idx)
-                    self.logger.info(f"Found GL sheet headers at row {idx} via manual search")
-                    return gl_data
-            
-            # If still no headers found, return raw data
-            self.logger.warning("No clear headers found in GL sheet, using raw data")
-            return raw_data
-            
-        except Exception as e:
-            self.logger.warning(f"Could not load GL sheet: {str(e)}. Will use default subsidiary mapping.")
-            return pd.DataFrame()
     
-    def _prepare_anomaly_data(self, anomalies: List[Anomaly], tb_data: pd.DataFrame) -> List[dict]:
-        """Prepare anomaly data in required format."""
+    def _prepare_anomaly_data(self, anomalies: List[Anomaly], financial_data: FinancialData) -> List[dict]:
+        """Prepare anomaly data in required format using financial data from BS and PL sheets."""
         summary_data = []
         seen_combinations = set()  # Track unique combinations to prevent duplicates
         
-        for anomaly in anomalies:
+        self.logger.info(f"Processing {len(anomalies)} anomalies for report generation")
+        
+        # Get subsidiary from file path
+        file_subsidiary = self._extract_subsidiary_from_filename(financial_data.metadata.get('file_path', ''))
+        self.logger.info(f"Extracted subsidiary '{file_subsidiary}' from filename")
+        
+        # Log sheet information
+        if 'sheets' in financial_data.metadata:
+            available_sheets = financial_data.metadata['sheets']
+            self.logger.info(f"Available sheets in source file: {available_sheets}")
+        
+        for i, anomaly in enumerate(anomalies, 1):
+            # Log anomaly source information
+            anomaly_source = self._determine_anomaly_source(anomaly)
+            self.logger.debug(f"Anomaly {i}/{len(anomalies)}: Account {anomaly.account_code} ({anomaly.account_name}) "
+                            f"from {anomaly_source}, Period: {anomaly.period}, "
+                            f"Variance: {anomaly.variance_percent:.2f}%")
+            
             # Skip total/summary accounts to reduce noise
             if self._is_total_account(anomaly.account_code, anomaly.account_name):
+                self.logger.debug(f"Skipping total/summary account: {anomaly.account_code} ({anomaly.account_name})")
                 continue
-            # Extract subsidiary from TB sheet
-            subsidiary = self._extract_subsidiary_from_tb(anomaly.account_code, tb_data)
+                
+            # Use subsidiary from filename
+            subsidiary = file_subsidiary
             
             # Format account as "Account Name (Code)"  
             account = f"{anomaly.account_name} ({anomaly.account_code})"
@@ -152,6 +139,7 @@ class ExcelGenerator:
             
             # Skip if this combination already exists
             if unique_key in seen_combinations:
+                self.logger.debug(f"Skipping duplicate: {subsidiary} - {account} - {period}")
                 continue
             
             seen_combinations.add(unique_key)
@@ -174,6 +162,10 @@ class ExcelGenerator:
             # Default notes
             notes = ""
             
+            # Log final record info
+            self.logger.debug(f"Added anomaly record: {subsidiary} - {account} - {period} "
+                            f"({pct_change}, {absolute_change:,.0f} VND)")
+            
             summary_data.append({
                 'Subsidiary': subsidiary,
                 'Account': account,
@@ -187,6 +179,7 @@ class ExcelGenerator:
                 '_severity': anomaly.severity.value  # Store severity for formatting
             })
         
+        self.logger.info(f"Generated {len(summary_data)} anomaly records from {len(anomalies)} input anomalies")
         return summary_data
     
     def _is_total_account(self, account_code: str, account_name: str) -> bool:
@@ -256,80 +249,91 @@ class ExcelGenerator:
         
         return False
     
-    def _extract_subsidiary_from_tb(self, account_code: str, tb_data: pd.DataFrame) -> str:
-        """Extract subsidiary from GL sheet based on account code with multiple possible column names."""
-        if tb_data.empty:
-            return self._get_default_subsidiary(account_code)
-        
+    
+    def _get_default_subsidiary(self) -> str:
+        """Get default subsidiary name."""
+        return 'DAL'  # Default to main entity  # Default to main entity  # Default to full main entity name
+
+    def _get_subsidiary_from_financial_data(self, account_code: str, financial_data: FinancialData) -> str:
+        """Get subsidiary information from financial data or filename."""
         try:
-            # Define possible column names for subsidiary
-            subsidiary_column_names = [
-                'Subsidiary', 'subsidiary', 'SUBSIDIARY',
-                'Entity', 'entity', 'ENTITY', 
-                'Company', 'company', 'COMPANY',
-                'Sub', 'SUB', 'sub',
-                'Dept', 'Department', 'DEPT', 'DEPARTMENT'
-            ]
+            # First, try to extract from filename (preferred method)
+            if financial_data.metadata and 'file_path' in financial_data.metadata:
+                subsidiary_from_filename = self._extract_subsidiary_from_filename(financial_data.metadata['file_path'])
+                if subsidiary_from_filename != self._get_default_subsidiary():
+                    return subsidiary_from_filename
             
-            # Define possible column names for account code
-            account_code_column_names = [
-                'Account Code', 'AccountCode', 'account_code', 'ACCOUNT_CODE',
-                'Code', 'code', 'CODE',
-                'Account_Code', 'ACCOUNT CODE',
-                'Acc Code', 'ACC_CODE', 'acc_code'
-            ]
+            # Fallback to subsidiaries list if available
+            if financial_data.subsidiaries:
+                return financial_data.subsidiaries[0]
+            else:
+                return self._get_default_subsidiary()
+        except Exception as e:
+            self.logger.warning(f"Error getting subsidiary for account {account_code}: {str(e)}")
+            return self._get_default_subsidiary()
+
+    def _extract_subsidiary_from_filename(self, file_path: str) -> str:
+        """Extract subsidiary code from filename. E.g. 'DAL_May25_example.xlsx' -> 'DAL'"""
+        try:
+            if not file_path:
+                return self._get_default_subsidiary()
             
-            # Find the actual column names that exist in the dataframe
-            subsidiary_col = None
-            account_col = None
+            import os
+            filename = os.path.basename(file_path)
             
-            for col_name in subsidiary_column_names:
-                if col_name in tb_data.columns:
-                    subsidiary_col = col_name
-                    break
+            # Remove file extension
+            filename_without_ext = os.path.splitext(filename)[0]
             
-            for col_name in account_code_column_names:
-                if col_name in tb_data.columns:
-                    account_col = col_name
-                    break
+            # Split by underscore and take the first part as subsidiary code
+            parts = filename_without_ext.split('_')
+            if parts and parts[0]:
+                subsidiary_code = parts[0].upper()
+                self.logger.debug(f"Extracted subsidiary '{subsidiary_code}' from filename '{filename}'")
+                return subsidiary_code
             
-            # If we found both columns, try to match
-            if subsidiary_col and account_col:
-                match = tb_data[tb_data[account_col].astype(str) == str(account_code)]
-                if not match.empty:
-                    return str(match.iloc[0][subsidiary_col])
+            # Fallback: try to extract letters from start of filename
+            import re
+            match = re.match(r'^([A-Z]+)', filename_without_ext.upper())
+            if match:
+                subsidiary_code = match.group(1)
+                self.logger.debug(f"Extracted subsidiary '{subsidiary_code}' using regex from filename '{filename}'")
+                return subsidiary_code
             
-            # Fallback: look for any column that might contain subsidiary info
-            # and try to match with account code in any reasonable column
-            if subsidiary_col:
-                # Try to find account code in any column that might contain it
-                for col in tb_data.columns:
-                    if any(keyword in col.lower() for keyword in ['account', 'code', 'acc']):
-                        try:
-                            match = tb_data[tb_data[col].astype(str) == str(account_code)]
-                            if not match.empty:
-                                return str(match.iloc[0][subsidiary_col])
-                        except:
-                            continue
-            
-            # If no match found, use default mapping
-            return self._get_default_subsidiary(account_code)
+            self.logger.warning(f"Could not extract subsidiary from filename '{filename}', using default")
+            return self._get_default_subsidiary()
             
         except Exception as e:
-            self.logger.warning(f"Error extracting subsidiary for {account_code}: {str(e)}")
-            return self._get_default_subsidiary(account_code)
-    
-    def _get_default_subsidiary(self, account_code: str) -> str:
-        """Get default subsidiary based on account code pattern."""
-        # Default logic based on account code patterns
-        if account_code.startswith('1') or account_code.startswith('2'):
-            return 'DAL'  # Main entity
-        elif 'SHL' in account_code:
-            return 'SHL Subsidiary'
-        elif 'HCM' in account_code:
-            return 'HCM Operations'
-        else:
-            return 'DAL'  # Default to main entity  # Default to full main entity name
+            self.logger.warning(f"Error extracting subsidiary from filename '{file_path}': {str(e)}")
+            return self._get_default_subsidiary()
+
+    def _determine_anomaly_source(self, anomaly: Anomaly) -> str:
+        """Determine which sheet/source the anomaly came from based on account characteristics."""
+        try:
+            # Check if it's likely from Balance Sheet based on account code or category
+            if anomaly.category in ['investment_properties', 'borrowings', 'cash_deposits', 'trade_receivables', 'assets', 'liabilities', 'equity']:
+                return "BS breakdown/BS sheet"
+            
+            # Check if it's likely from P&L based on account code or category  
+            elif anomaly.category in ['opex', 'staff_costs', 'other_expenses', 'revenue', 'income', 'expense']:
+                return "PL breakdown sheet"
+            
+            # Try to determine from account code patterns
+            account_code_str = str(anomaly.account_code)
+            
+            # Balance Sheet account code patterns (typically 1000s, 2000s, 3000s)
+            if account_code_str.startswith(('1', '2', '3')):
+                return "BS breakdown/BS sheet"
+            
+            # P&L account code patterns (typically 4000s, 5000s, 6000s, 7000s)  
+            elif account_code_str.startswith(('4', '5', '6', '7', '8', '9')):
+                return "PL breakdown sheet"
+            
+            # Default fallback
+            return "Unknown sheet (categorized as Balance Sheet)"
+            
+        except Exception as e:
+            self.logger.warning(f"Error determining anomaly source for account {anomaly.account_code}: {str(e)}")
+            return "Unknown sheet"
     
     def _format_period(self, period: str) -> str:
         """Format period as MM/YYYY."""
